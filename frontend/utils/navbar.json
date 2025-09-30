@@ -129,7 +129,7 @@
           "name": "Documents",
           "function": "DocumentsView()",
           "path": "views.Documents.Documents",
-          "access": ["admin", "student", "staff"],
+          "access": ["admin", "student"],
           "modulars":[
             {"id": 13, "name": "Vault", "function": "VaultView()", "path": "views.Documents.DocumentVault.Vault"},
             {"id": 14, "name": "Repository", "function": "RepositoryView()", "path": "views.Documents.FormRepository.Repository"}
