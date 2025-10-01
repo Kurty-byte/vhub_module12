@@ -20,7 +20,7 @@ class DocumentsView(QWidget):
         self.roles = roles
         self.primary_role = primary_role
         self.token = token
-
+        
         main_layout = QVBoxLayout(self)
         
         # Use RoleRouter to get appropriate dashboard
