@@ -1,10 +1,17 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
                              QHBoxLayout, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QLineEdit, QStackedWidget)
+                             QHeaderView, QLineEdit, QStackedWidget, QMessageBox)
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
+from ..controller.document_controller import DocumentController
+from ..Mock.data_loader import get_collection_by_name
 
 class CollectionView(QWidget):
+    file_accepted = pyqtSignal(str)
+    file_rejected = pyqtSignal(str)
+
+    file_uploaded = pyqtSignal(dict)
+
     def __init__(self, username, roles, primary_role, token, collection_name=None, stack=None):
         super().__init__()
 
@@ -12,6 +19,10 @@ class CollectionView(QWidget):
         self.roles = roles
         self.primary_role = primary_role
         self.token = token
+        self.collection_name = collection_name
+        
+        # Initialize controller
+        self.controller = DocumentController(username, roles, primary_role, token)
 
         self.stack: QStackedWidget = stack
         self.setWindowTitle(f"Collection: {collection_name}" if collection_name else "Collection")
@@ -20,18 +31,24 @@ class CollectionView(QWidget):
         # Header with back button
         header_layout = QHBoxLayout()
         back_btn = QPushButton("← Back")
+        back_btn.clicked.connect(self.go_back)
+        
+        header = QLabel(f"{collection_name}" if collection_name else "Collection")
+        header.setFont(QFont("Arial", 16))
+        
+        # Add File button
+        add_file_btn = QPushButton("Add File")
+        add_file_btn.clicked.connect(self.handle_add_file)
 
         search_bar = QLineEdit()
         search_button = QPushButton("Search")
         search_button.clicked.connect(lambda: print("Search button clicked"))
-        search_bar.setPlaceholderText("Search Organization...")
+        search_bar.setPlaceholderText("Search files...")
         search_bar.setMinimumWidth(200)
 
-        back_btn.clicked.connect(self.go_back)
-        header = QLabel(f"{collection_name}" if collection_name else "Collection")
-        header.setFont(QFont("Arial", 16))
         header_layout.addWidget(header)
         header_layout.addStretch()
+        header_layout.addWidget(add_file_btn)
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
         header_layout.addWidget(back_btn)
@@ -47,14 +64,15 @@ class CollectionView(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemClicked.connect(self.handle_item_clicked)  # Added this
 
-        # Sample data for demonstration
-        files_data = [
-            (f"{collection_name} File 1", "10:00 am", "pdf"),
-            (f"{collection_name} File 2", "11:30 am", "docx"),
-            (f"{collection_name} File 3", "2:15 pm", "xlsx"),
-        ]
-        for name, time, ext in files_data:
-            self.add_file_to_table(name, time, ext)
+        # Load collection data from JSON
+        collection_data = get_collection_by_name(collection_name)
+        if collection_data:
+            files_data = collection_data.get('files', [])
+            for file_data in files_data:
+                self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
+        else:
+            # Fallback if collection not found
+            print(f"Warning: Collection '{collection_name}' not found in JSON data")
         main_layout.addWidget(self.table)
 
         self.setLayout(main_layout)
@@ -93,3 +111,37 @@ class CollectionView(QWidget):
         if item.column() != 3:  # Not actions column
             filename = self.table.item(item.row(), 0).text()
             print(f"File row clicked: {filename}")
+    
+    def handle_add_file(self):
+        """Open file upload dialog for this collection"""
+        print(f"Add file to collection: {self.collection_name}")
+        from ..services.document_crud_service import DocumentCRUDService
+        from .file_upload_dialog import FileUploadDialog
+        
+        # Get collection ID
+        crud_service = DocumentCRUDService()
+        collection = crud_service.get_collection_by_name(self.collection_name)
+        
+        if collection:
+            collection_id = collection.get("id")
+            dialog = FileUploadDialog(
+                self, 
+                collection_id=collection_id,
+                username=self.username,
+                role=self.primary_role
+            )
+            dialog.file_uploaded.connect(self.on_file_uploaded)
+            dialog.exec()
+        else:
+            print(f"Error: Collection '{self.collection_name}' not found")
+    
+    def on_file_uploaded(self, file_data):
+        """Handle file uploaded event"""
+        print(f"File uploaded to collection: {file_data}")
+        # Add file to table
+        self.add_file_to_table(
+            file_data.get('filename'),
+            file_data.get('time'),
+            file_data.get('extension')
+        )
+        self.file_uploaded.emit(file_data)

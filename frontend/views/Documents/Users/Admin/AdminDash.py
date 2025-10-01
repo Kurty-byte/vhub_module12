@@ -1,10 +1,11 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
                              QHBoxLayout, QFrame, QLineEdit, QScrollArea,
                              QTableView, QHeaderView,
-                             QSizePolicy, QStackedWidget)
+                             QSizePolicy, QStackedWidget, QMessageBox)
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from ...controller.document_controller import DocumentController
+from ...utils.icon_utils import create_menu_button, create_search_button, IconLoader
 
 
 class AdminDash(QWidget):
@@ -31,11 +32,13 @@ class AdminDash(QWidget):
         self.roles = roles
         self.primary_role = primary_role
         self.token = token
+        
+        self.controller = DocumentController(username, roles, primary_role, token)
 
         self.stack = QStackedWidget()
 
         self.dashboard_widget = QWidget()
-        self.setup_dashboard()
+        self.init_ui()
 
         self.stack.addWidget(self.dashboard_widget)
 
@@ -43,30 +46,31 @@ class AdminDash(QWidget):
         main_layout.addWidget(self.stack)
         self.setLayout(main_layout)
 
-    def setup_dashboard(self):
+    def init_ui(self):
         main_layout = QVBoxLayout()
 
         # ========== HEADER SECTION ==========
         header_layout = QHBoxLayout()
         
-        menu_btn = QLabel("☰ Menu")
+        # Menu button with hamburger icon - using utility
+        menu_btn = create_menu_button(callback=lambda: print("Menu button clicked"))
+        
         title = QLabel("Documents")
-        add_btn = QPushButton("Add file")
-        add_btn.clicked.connect(lambda event: print("Add file clicked"))
+        add_collection_btn = QPushButton("Add Collection")
+        add_collection_btn.clicked.connect(self.handle_add_collection)
         delete_btn = QPushButton("Manage Deleted Files")
         delete_btn.clicked.connect(self.handle_manage_deleted_files)
             
         # Changed from QLabel to QLineEdit for text input
         search_bar = QLineEdit()
-        search_button = QPushButton("Search")
-        search_button.clicked.connect(lambda: print("Search button clicked"))
+        search_button = create_search_button(callback=lambda: print("Search button clicked"))
         search_bar.setPlaceholderText("Search Organization...")
         search_bar.setMinimumWidth(200)
         
         header_layout.addWidget(menu_btn)
         header_layout.addWidget(title)
         header_layout.addStretch()
-        header_layout.addWidget(add_btn)
+        header_layout.addWidget(add_collection_btn)
         header_layout.addWidget(delete_btn)
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
@@ -76,9 +80,8 @@ class AdminDash(QWidget):
         # ========== COLLECTIONS HEADER ==========
         collections_header = QHBoxLayout()
         collections_label = QLabel("Collections")
-        upload_link = QLabel("File Upload Requests")
-        upload_link.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.LinksAccessibleByMouse)
-        upload_link.mousePressEvent = lambda event: print("Upload link clicked")
+        upload_link = QPushButton("File Upload Requests")
+        upload_link.clicked.connect(lambda: print("File Upload Requests clicked"))
         
         collections_header.addWidget(collections_label)
         collections_header.addStretch()
@@ -97,9 +100,11 @@ class AdminDash(QWidget):
         collections_layout = QHBoxLayout()
         collections_layout.setSpacing(25)
         
-        for i in range(1,20):
-            collection = self.create_collection_card(f"Collection {i}")
-            collection.mousePressEvent = self.make_collection_click_handler(f"Collection {i}")
+        # Load collections using controller
+        collections_data = self.controller.get_collections()
+        for collection_data in collections_data:
+            collection = self.create_collection_card(collection_data['name'], collection_data.get('icon', 'folder.png'))
+            collection.mousePressEvent = self.make_collection_click_handler(collection_data['name'])
             collections_layout.addWidget(collection)
         
         collections_layout.addStretch()
@@ -132,26 +137,17 @@ class AdminDash(QWidget):
         self.files_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.files_table.clicked.connect(self.handle_file_row_clicked)
         
-        # Sample file data(to json)
-        files_data = [
-            ("Request Letter", "11:55 pm", "pdf"),
-            ("Weaver", "1:00 pm", ".docx"),
-            ("Memorandum", "7:00 am", "pdf"),
-            ("Syllabus", "12:00 pm", "pdf"),
-            ("Budget Report", "3:30 pm", "xlsx"),
-            ("Meeting Notes", "9:15 am", "pdf"),
-            ("Presentation", "2:45 pm", "pptx"),
-            ("Contract", "11:00 am", "pdf"),
-        ]
+        # Load file data using controller
+        files_data = self.controller.get_files()
 
         # Populate
-        for name, time, ext in files_data:
-            self.add_file_to_table(name, time, ext)
+        for file_data in files_data:
+            self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
         files_layout.addWidget(self.files_table)
         
         # New button at bottom right
         new_btn = QPushButton("+ New")
-        new_btn.clicked.connect(lambda: print("New button clicked"))
+        new_btn.clicked.connect(self.handle_add_file)
 
         new_btn_layout = QHBoxLayout()
         new_btn_layout.addStretch()
@@ -165,8 +161,11 @@ class AdminDash(QWidget):
         chart_frame.setFrameShape(QFrame.Shape.Box)
         chart_layout = QVBoxLayout()
         
+        # Load storage data using controller
+        storage_data = self.controller.get_storage_info()
+        
         # Placeholder for donut chart (will be custom widget later)
-        chart_placeholder = QLabel("75%\nTotal Size: 24.5 GB")
+        chart_placeholder = QLabel(f"{storage_data['usage_percentage']}%\nTotal Size: {storage_data['total_size_gb']} GB")
         chart_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         chart_placeholder.setMinimumHeight(250)
         chart_layout.addWidget(chart_placeholder)
@@ -176,7 +175,7 @@ class AdminDash(QWidget):
         used_row = QHBoxLayout()
         used_color = QLabel("■") 
         used_label = QLabel("Used Storage")
-        used_size = QLabel("Actual Size: 18.37 GB")
+        used_size = QLabel(f"Actual Size: {storage_data['used_size_gb']} GB")
         used_row.addWidget(used_color)
         used_row.addWidget(used_label)
         used_row.addStretch()
@@ -185,7 +184,7 @@ class AdminDash(QWidget):
         free_row = QHBoxLayout()
         free_color = QLabel("□")
         free_label = QLabel("Free Space")
-        free_size = QLabel("Unused Size: 6.12 GB")
+        free_size = QLabel(f"Unused Size: {storage_data['free_size_gb']} GB")
         free_row.addWidget(free_color)
         free_row.addWidget(free_label)
         free_row.addStretch()
@@ -204,43 +203,13 @@ class AdminDash(QWidget):
         # Set the main layout for this widget
         self.dashboard_widget.setLayout(main_layout)
 
-    def make_collection_click_handler(self, name):
-        def handler(event):
-            print(f"Collection clicked: {name}")
-            from ...Shared.CollectionView import CollectionView
-            collection_view = CollectionView(self.username, self.roles, self.primary_role, self.token, collection_name=name, stack=self.stack)
-            self.stack.addWidget(collection_view)
-            self.stack.setCurrentWidget(collection_view)
-        return handler
-
-    def handle_manage_deleted_files(self):
-        print("Manage Deleted Files clicked")
-        from ...Shared.DeletedFileView import DeletedFileView
-        deleted_view = DeletedFileView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
-        self.stack.addWidget(deleted_view)
-        self.stack.setCurrentWidget(deleted_view)
-    
-    def deleted_click_handler(self, event):
-        def handler(event):
-            print("Deleted Files clicked")
-            from ...Shared.DeletedFileView import DeletedFileView
-            deleted_file_view = DeletedFileView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
-            self.stack.addWidget(deleted_file_view)
-            self.stack.setCurrentWidget(deleted_file_view)
-        return handler
-
-    def create_collection_card(self, name):
+    def create_collection_card(self, name, icon_filename="folder.png"):
         """
         Creates a single collection card widget
         
-        Layout structure:
-        ┌─────────┐
-        │  Icon   │
-        │  Name   │
-        └─────────┘
-        
         Args:
             name (str): Display name for the collection
+            icon_filename (str): Icon filename from Assets folder (default: "folder.png")
             
         Returns:
             QFrame: A frame containing the collection card UI
@@ -254,8 +223,8 @@ class AdminDash(QWidget):
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        icon = QLabel("📄")  # Placeholder icon
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Load icon using IconLoader
+        icon = IconLoader.create_icon_label(icon_filename, size=(32, 32), alignment=Qt.AlignmentFlag.AlignCenter)
         
         label = QLabel(name)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -281,3 +250,100 @@ class AdminDash(QWidget):
             # Get filename from the model
             filename = self.files_model.item(index.row(), 0).text()
             print(f"File row clicked: {filename}")
+
+    def deleted_click_handler(self, event):
+        def handler(event):
+            print("Deleted Files clicked")
+            from ...Shared.deleted_files_view import DeletedFileView
+            deleted_file_view = DeletedFileView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
+            self.stack.addWidget(deleted_file_view)
+            self.stack.setCurrentWidget(deleted_file_view)
+        return handler
+    
+    def make_collection_click_handler(self, name):
+        def handler(event):
+            print(f"Collection clicked: {name}")
+            from ...Shared.collection_view import CollectionView
+            collection_view = CollectionView(
+                self.username,
+                self.roles,
+                self.primary_role,
+                self.token,
+                collection_name=name,
+                stack=self.stack)
+
+            collection_view.file_uploaded.connect(self.on_file_uploaded)
+
+            self.stack.addWidget(collection_view)
+            self.stack.setCurrentWidget(collection_view)
+        return handler
+
+    def handle_add_collection(self):
+        """Open the add collection dialog popup"""
+        print("Add Collection clicked - Opening dialog")
+        from ...Shared.add_collection_dialog import AddCollectionDialog
+        dialog = AddCollectionDialog(self)
+        dialog.collection_created.connect(self.on_collection_created)
+        dialog.exec()  # Show modal dialog
+    
+    def handle_add_file(self):
+        """Open the file upload dialog popup"""
+        print("Add file clicked - Opening dialog")
+        from ...Shared.file_upload_dialog import FileUploadDialog
+        dialog = FileUploadDialog(self, username=self.username, role=self.primary_role)
+        dialog.file_uploaded.connect(self.on_file_uploaded)
+        dialog.exec()
+    
+    def on_collection_created(self, collection_data):
+        """Handle collection created event"""
+        print(f"Collection created: {collection_data}")
+        # Refresh the collections display
+        self.refresh_collections()
+    
+    def on_file_uploaded(self, file_data):
+        """Handle file uploaded event"""
+        print(f"File uploaded: {file_data}")
+        # Refresh the files table
+        self.refresh_files_table()
+    
+    def refresh_collections(self):
+        """Reload and refresh the collections grid"""
+        # Find the collections scroll area widget
+        collections_scroll = self.dashboard_widget.findChild(QScrollArea)
+        if collections_scroll:
+            # Get the container widget
+            container = collections_scroll.widget()
+            if container:
+                # Clear existing layout
+                layout = container.layout()
+                if layout:
+                    while layout.count():
+                        item = layout.takeAt(0)
+                        if item.widget():
+                            item.widget().deleteLater()
+                    
+                    # Reload collections using controller
+                    collections_data = self.controller.get_collections()
+                    for collection_data in collections_data:
+                        collection = self.create_collection_card(collection_data['name'], collection_data.get('icon', 'folder.png'))
+                        collection.mousePressEvent = self.make_collection_click_handler(collection_data['name'])
+                        layout.addWidget(collection)
+                    
+                    layout.addStretch()
+    
+    def refresh_files_table(self):
+        """Reload and refresh the uploaded files table"""
+        # Clear existing rows
+        self.files_model.removeRows(0, self.files_model.rowCount())
+        
+        # Reload files using controller
+        files_data = self.controller.get_files()
+        for file_data in files_data:
+            self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
+    
+    def handle_manage_deleted_files(self):
+        print("Manage Deleted Files clicked")
+        from ...Shared.deleted_files_view import DeletedFileView
+        deleted_view = DeletedFileView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
+        self.stack.addWidget(deleted_view)
+        self.stack.setCurrentWidget(deleted_view)

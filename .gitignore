@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 db.sqlite3
 *.sqlite3
+
+frontend/views/Documents/FileStorage/**/*
+
+frontend/views/Documents/Mock/files_data.json
+frontend/views/Documents/Mock/collections_data.json
+frontend/views/Documents/Mock/storage_data.json
