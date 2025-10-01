@@ -50,6 +50,12 @@
           "role": "admin"
         }
       ]
+    },
+    {
+      "id": 2,
+      "name": "pakyu",
+      "icon": "folder.png",
+      "files": []
     }
   ]
 }
