@@ -170,7 +170,9 @@ class DocumentCRUDService:
                     "uploaded_date": now.strftime("%m/%d/%Y"),
                     "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
                     "uploader": uploader,
-                    "role": role
+                    "role": role,
+                    "status": "available",  # NEW: available, soft_deleted, permanently_deleted
+                    "approval_status": "pending"  # NEW: pending, accepted, rejected
                 }
                 
                 collection["files"].append(new_file)
@@ -219,7 +221,9 @@ class DocumentCRUDService:
             "uploaded_date": now.strftime("%m/%d/%Y"),
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
             "uploader": uploader,
-            "role": role
+            "role": role,
+            "status": "available",  # NEW: available, soft_deleted, permanently_deleted
+            "approval_status": "pending"  # NEW: pending, accepted, rejected
         }
         
         if self._add_to_uploaded_files(filename, file_path, category, extension, uploader, role):
@@ -248,7 +252,9 @@ class DocumentCRUDService:
             "uploaded_date": now.strftime("%m/%d/%Y"),
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
             "uploader": uploader,
-            "role": role
+            "role": role,
+            "status": "available",  # NEW: available, soft_deleted, permanently_deleted
+            "approval_status": "pending"  # NEW: pending, accepted, rejected
         }
         
         uploaded_files.append(new_file)

@@ -55,13 +55,14 @@ class UploadedFilesView(QWidget):
 
         # Table for uploaded files
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Filename", "Time", "Extension", "Actions"])
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Filename", "Time", "Actions"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemClicked.connect(self.handle_item_clicked)
+        self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
         # Load uploaded files data using controller
         self.load_uploaded_files()
@@ -94,15 +95,12 @@ class UploadedFilesView(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         
-        details_btn = QPushButton("Details")
         download_btn = QPushButton("Download")
         delete_btn = QPushButton("Delete")
         
-        details_btn.clicked.connect(lambda: self.show_file_details(filename))
         download_btn.clicked.connect(lambda: self.handle_download(filename))
         delete_btn.clicked.connect(lambda: self.handle_delete(filename))
         
-        layout.addWidget(details_btn)
         layout.addWidget(download_btn)
         layout.addWidget(delete_btn)
         widget.setLayout(layout)
@@ -120,15 +118,20 @@ class UploadedFilesView(QWidget):
         self.table.insertRow(row)
         self.table.setItem(row, 0, QTableWidgetItem(name))
         self.table.setItem(row, 1, QTableWidgetItem(time))
-        self.table.setItem(row, 2, QTableWidgetItem(ext))
         actions_widget = self.create_actions_widget(name)
-        self.table.setCellWidget(row, 3, actions_widget)
+        self.table.setCellWidget(row, 2, actions_widget)
 
     def handle_item_clicked(self, item):
         """Handle table item click (not action buttons)"""
-        if item.column() != 3:  # Not actions column
+        if item.column() != 2:  # Not actions column (now column 2 instead of 3)
             filename = self.table.item(item.row(), 0).text()
             print(f"Uploaded file row clicked: {filename}")
+    
+    def handle_item_double_clicked(self, item):
+        """Handle table item double-click - show file details dialog"""
+        if item.column() != 2:  # Not actions column
+            filename = self.table.item(item.row(), 0).text()
+            self.show_file_details(filename)
     
     def load_uploaded_files(self):
         """Load and populate uploaded files table"""
@@ -190,7 +193,7 @@ class UploadedFilesView(QWidget):
                 QMessageBox.warning(self, "Error", message)
     
     def show_file_details(self, filename):
-        """Show file details dialog"""
+        """Show file details dialog using custom widget"""
         # Get file details from uploaded files
         files_data = self.controller.get_files()
         file_data = None
@@ -201,15 +204,29 @@ class UploadedFilesView(QWidget):
                 break
         
         if file_data:
-            details_text = f"""
-Filename: {file_data['filename']}
-Extension: {file_data['extension']}
-Category: {file_data.get('category', 'N/A')}
-Uploaded by: {file_data.get('uploader', 'N/A')}
-Upload Date: {file_data.get('time', 'N/A')}
-File Size: {file_data.get('size', 'N/A')}
-File Path: {file_data.get('file_path', 'N/A')}
-            """
-            QMessageBox.information(self, f"File Details - {filename}", details_text.strip())
+            from .file_details_dialog import FileDetailsDialog
+            dialog = FileDetailsDialog(
+                self, 
+                file_data=file_data, 
+                controller=self.controller,
+                is_deleted=False
+            )
+            dialog.file_updated.connect(self.on_file_updated)
+            dialog.file_deleted.connect(self.on_file_deleted_from_dialog)
+            dialog.exec()
         else:
             QMessageBox.warning(self, "Error", f"Could not find details for '{filename}'")
+    
+    def on_file_updated(self, file_data):
+        """Handle file updated signal from details dialog"""
+        print(f"File updated: {file_data}")
+        # Refresh the table to show updated data
+        self.load_uploaded_files()
+    
+    def on_file_deleted_from_dialog(self, file_data):
+        """Handle file deleted signal from details dialog"""
+        print(f"File deleted from dialog: {file_data}")
+        # Emit signal to notify parent
+        self.file_deleted.emit(file_data)
+        # Refresh the table
+        self.load_uploaded_files()

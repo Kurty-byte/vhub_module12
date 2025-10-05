@@ -11,6 +11,8 @@ class CollectionView(QWidget):
     file_accepted = pyqtSignal(str)
     file_rejected = pyqtSignal(str)
     file_uploaded = pyqtSignal(dict)
+    file_deleted = pyqtSignal(dict)  # NEW: Signal for file deletion
+    file_updated = pyqtSignal(dict)  # NEW: Signal for file update
 
     def __init__(self, username, roles, primary_role, token, collection_name=None, stack=None):
         super().__init__()
@@ -64,7 +66,8 @@ class CollectionView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.itemClicked.connect(self.handle_item_clicked)  # Added this
+        self.table.itemClicked.connect(self.handle_item_clicked)
+        self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
         # Load collection data from JSON
         collection_data = get_collection_by_name(collection_name)
@@ -108,13 +111,10 @@ class CollectionView(QWidget):
         widget = QWidget()
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        details_btn = QPushButton("Details")
         reject_btn = QPushButton("Reject")
         accept_btn = QPushButton("Accept")
-        details_btn.clicked.connect(lambda: print(f"Details clicked for {filename}"))
         reject_btn.clicked.connect(lambda: print(f"Reject clicked for {filename}"))
         accept_btn.clicked.connect(lambda: print(f"Accept clicked for {filename}"))
-        layout.addWidget(details_btn)
         layout.addWidget(reject_btn)
         layout.addWidget(accept_btn)
         widget.setLayout(layout)
@@ -134,10 +134,70 @@ class CollectionView(QWidget):
         actions_widget = self.create_actions_widget(name)
         self.table.setCellWidget(row, 3, actions_widget)
 
-    def handle_item_clicked(self, item):  # Renamed and updated
+    def handle_item_clicked(self, item):
         if item.column() != 3:  # Not actions column
             filename = self.table.item(item.row(), 0).text()
             print(f"File row clicked: {filename}")
+    
+    def handle_item_double_clicked(self, item):
+        """Handle table item double-click - show file details dialog"""
+        if item.column() != 3:  # Not actions column
+            filename = self.table.item(item.row(), 0).text()
+            self.show_file_details(filename)
+    
+    def show_file_details(self, filename):
+        """Show file details dialog using custom widget"""
+        # Get file details from collection
+        collection_data = get_collection_by_name(self.collection_name)
+        file_data = None
+        
+        if collection_data:
+            files_data = collection_data.get('files', [])
+            for f in files_data:
+                if f['filename'] == filename:
+                    file_data = f
+                    break
+        
+        if file_data:
+            from .file_details_dialog import FileDetailsDialog
+            dialog = FileDetailsDialog(
+                self, 
+                file_data=file_data, 
+                controller=self.controller,
+                is_deleted=False
+            )
+            dialog.file_updated.connect(self.on_file_updated_from_dialog)
+            dialog.file_deleted.connect(self.on_file_deleted_from_dialog)
+            dialog.exec()
+        else:
+            QMessageBox.warning(self, "Error", f"Could not find details for '{filename}'")
+    
+    def on_file_updated_from_dialog(self, file_data):
+        """Handle file updated signal from details dialog"""
+        print(f"File updated in collection: {file_data}")
+        # Refresh collection files
+        self.refresh_collection_files()
+        # Forward signal to parent (AdminDash)
+        self.file_updated.emit(file_data)
+    
+    def on_file_deleted_from_dialog(self, file_data):
+        """Handle file deleted signal from details dialog"""
+        print(f"File deleted from collection dialog: {file_data}")
+        
+        # Immediate UI update - remove file from table
+        filename = file_data.get('filename')
+        if filename and filename in self.file_data_cache:
+            row_idx = self.file_data_cache[filename]['row_index']
+            self.table.removeRow(row_idx)
+            del self.file_data_cache[filename]
+            self._rebuild_file_indices()
+            print(f"Immediately removed file from collection UI: {filename}")
+        
+        # Then refresh to ensure consistency with data source
+        self.refresh_collection_files()
+        
+        # Forward signal to parent (AdminDash)
+        self.file_deleted.emit(file_data)
     
     def handle_add_file(self):
         """Open file upload dialog for this collection"""

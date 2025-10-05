@@ -145,14 +145,15 @@ class AdminDash(QWidget):
 
         # Create a table view and model for files
         self.files_table = QTableView()
-        self.files_model = QStandardItemModel(0, 3)
-        self.files_model.setHorizontalHeaderLabels(["Filename", "Time", "Extension"])
+        self.files_model = QStandardItemModel(0, 5)
+        self.files_model.setHorizontalHeaderLabels(["Filename", "Upload Date", "Type", "Status", "Approval"])
         self.files_table.setModel(self.files_model)
         self.files_table.horizontalHeader().setStretchLastSection(True)
         self.files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.files_table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self.files_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.files_table.clicked.connect(self.handle_file_row_clicked)
+        self.files_table.doubleClicked.connect(self.handle_file_row_double_clicked)
         
         # Connect model signals for automatic cache consistency
         self.files_model.rowsRemoved.connect(self._on_rows_removed)
@@ -163,11 +164,21 @@ class AdminDash(QWidget):
 
         # Populate and track files
         for idx, file_data in enumerate(files_data):
-            self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
+            status = file_data.get('status', 'available')
+            approval = file_data.get('approval_status', 'pending')
+            self.add_file_to_table(
+                file_data['filename'], 
+                file_data.get('uploaded_date', file_data.get('time', 'N/A')), 
+                file_data['extension'],
+                status,
+                approval
+            )
             # Track file data in cache
             self.file_data_cache[file_data['filename']] = {
-                'time': file_data['time'],
+                'uploaded_date': file_data.get('uploaded_date', file_data.get('time', 'N/A')),
                 'extension': file_data['extension'],
+                'status': status,
+                'approval_status': approval,
                 'row_index': idx
             }
         files_layout.addWidget(self.files_table)
@@ -262,21 +273,75 @@ class AdminDash(QWidget):
         
         return card
 
-    def add_file_to_table(self, name, time, ext):
+    def add_file_to_table(self, name, date, ext, status, approval):
         """
         Adds a file row to the files table (QTableView/QStandardItemModel)
         Args:
             name (str): Filename
-            time (str): Upload time
+            date (str): Upload date
             ext (str): File extension
+            status (str): File status (available, soft_deleted, permanently_deleted)
+            approval (str): Approval status (pending, accepted, rejected)
         """
-        row = [QStandardItem(name), QStandardItem(time), QStandardItem(ext)]
+        # Get emoji indicators
+        status_emoji = self._get_status_emoji(status)
+        approval_emoji = self._get_approval_emoji(approval)
+        
+        row = [
+            QStandardItem(name), 
+            QStandardItem(date), 
+            QStandardItem(ext),
+            QStandardItem(status_emoji),
+            QStandardItem(approval_emoji)
+        ]
         self.files_model.appendRow(row)
 
     def handle_file_row_clicked(self, index):
             # Get filename from the model
             filename = self.files_model.item(index.row(), 0).text()
             print(f"File row clicked: {filename}")
+    
+    def handle_file_row_double_clicked(self, index):
+        """Handle file row double-click - show file details dialog"""
+        filename = self.files_model.item(index.row(), 0).text()
+        self.show_file_details(filename)
+    
+    def show_file_details(self, filename):
+        """Show file details dialog using custom widget"""
+        # Get file details from uploaded files
+        files_data = self.controller.get_files()
+        file_data = None
+        
+        for f in files_data:
+            if f['filename'] == filename:
+                file_data = f
+                break
+        
+        if file_data:
+            from ...Shared.file_details_dialog import FileDetailsDialog
+            dialog = FileDetailsDialog(
+                self, 
+                file_data=file_data, 
+                controller=self.controller,
+                is_deleted=False
+            )
+            dialog.file_updated.connect(self.on_file_updated_from_dialog)
+            dialog.file_deleted.connect(self.on_file_deleted_from_dialog)
+            dialog.exec()
+        else:
+            QMessageBox.warning(self, "Error", f"Could not find details for '{filename}'")
+    
+    def on_file_updated_from_dialog(self, file_data):
+        """Handle file updated signal from details dialog"""
+        print(f"File updated from dialog: {file_data}")
+        # Refresh files table to show updated data
+        self.refresh_files_table()
+    
+    def on_file_deleted_from_dialog(self, file_data):
+        """Handle file deleted signal from details dialog"""
+        print(f"File deleted from dialog: {file_data}")
+        # Refresh files table
+        self.refresh_files_table()
 
     def deleted_click_handler(self, event):
         def handler(event):
@@ -299,7 +364,10 @@ class AdminDash(QWidget):
                 collection_name=name,
                 stack=self.stack)
 
+            # Connect all signals from collection view
             collection_view.file_uploaded.connect(self.on_file_uploaded)
+            collection_view.file_deleted.connect(self.on_file_deleted)
+            collection_view.file_updated.connect(self.on_file_updated_from_dialog)
 
             self.stack.addWidget(collection_view)
             self.stack.setCurrentWidget(collection_view)
@@ -363,26 +431,40 @@ class AdminDash(QWidget):
         if filename in self.file_data_cache:
             # Update existing file data
             row_idx = self.file_data_cache[filename]['row_index']
+            status = file_data.get('status', 'available')
+            approval = file_data.get('approval_status', 'pending')
+            
             self.files_model.item(row_idx, 0).setText(file_data.get('filename', filename))
-            self.files_model.item(row_idx, 1).setText(file_data.get('time', ''))
+            self.files_model.item(row_idx, 1).setText(file_data.get('uploaded_date', file_data.get('time', '')))
             self.files_model.item(row_idx, 2).setText(file_data.get('extension', ''))
+            self.files_model.item(row_idx, 3).setText(self._get_status_emoji(status))
+            self.files_model.item(row_idx, 4).setText(self._get_approval_emoji(approval))
             
             # Update cache
-            self.file_data_cache[filename]['time'] = file_data.get('time', '')
+            self.file_data_cache[filename]['uploaded_date'] = file_data.get('uploaded_date', file_data.get('time', ''))
             self.file_data_cache[filename]['extension'] = file_data.get('extension', '')
+            self.file_data_cache[filename]['status'] = status
+            self.file_data_cache[filename]['approval_status'] = approval
             print(f"Updated existing file in UI: {filename}")
         else:
             # Add new file
+            status = file_data.get('status', 'available')
+            approval = file_data.get('approval_status', 'pending')
+            
             self.add_file_to_table(
                 file_data.get('filename', ''),
-                file_data.get('time', ''),
-                file_data.get('extension', '')
+                file_data.get('uploaded_date', file_data.get('time', '')),
+                file_data.get('extension', ''),
+                status,
+                approval
             )
             
             # Add to cache
             self.file_data_cache[filename] = {
-                'time': file_data.get('time', ''),
+                'uploaded_date': file_data.get('uploaded_date', file_data.get('time', '')),
                 'extension': file_data.get('extension', ''),
+                'status': status,
+                'approval_status': approval,
                 'row_index': self.files_model.rowCount() - 1
             }
             print(f"Added new file to UI: {filename}")
@@ -441,7 +523,10 @@ class AdminDash(QWidget):
         for filename in existing_files:
             cached = self.file_data_cache[filename]
             fresh = fresh_files[filename]
-            if cached['time'] != fresh['time'] or cached['extension'] != fresh['extension']:
+            if (cached.get('uploaded_date') != fresh.get('uploaded_date', fresh.get('time', '')) or 
+                cached.get('extension') != fresh.get('extension') or
+                cached.get('status') != fresh.get('status', 'available') or
+                cached.get('approval_status') != fresh.get('approval_status', 'pending')):
                 modified_files.add(filename)
         
         # Remove deleted files (sort by row index descending to avoid index shifting issues)
@@ -457,25 +542,42 @@ class AdminDash(QWidget):
         for filename in modified_files:
             row_idx = self.file_data_cache[filename]['row_index']
             fresh = fresh_files[filename]
+            status = fresh.get('status', 'available')
+            approval = fresh.get('approval_status', 'pending')
             
             self.files_model.item(row_idx, 0).setText(fresh['filename'])
-            self.files_model.item(row_idx, 1).setText(fresh['time'])
+            self.files_model.item(row_idx, 1).setText(fresh.get('uploaded_date', fresh.get('time', '')))
             self.files_model.item(row_idx, 2).setText(fresh['extension'])
+            self.files_model.item(row_idx, 3).setText(self._get_status_emoji(status))
+            self.files_model.item(row_idx, 4).setText(self._get_approval_emoji(approval))
             
             # Update cache
-            self.file_data_cache[filename]['time'] = fresh['time']
+            self.file_data_cache[filename]['uploaded_date'] = fresh.get('uploaded_date', fresh.get('time', ''))
             self.file_data_cache[filename]['extension'] = fresh['extension']
+            self.file_data_cache[filename]['status'] = status
+            self.file_data_cache[filename]['approval_status'] = approval
             print(f"Updated file: {filename}")
         
         # Add new files
         for filename in new_files:
             fresh = fresh_files[filename]
-            self.add_file_to_table(fresh['filename'], fresh['time'], fresh['extension'])
+            status = fresh.get('status', 'available')
+            approval = fresh.get('approval_status', 'pending')
+            
+            self.add_file_to_table(
+                fresh['filename'], 
+                fresh.get('uploaded_date', fresh.get('time', '')), 
+                fresh['extension'],
+                status,
+                approval
+            )
             
             # Add to cache with current row index
             self.file_data_cache[filename] = {
-                'time': fresh['time'],
+                'uploaded_date': fresh.get('uploaded_date', fresh.get('time', '')),
                 'extension': fresh['extension'],
+                'status': status,
+                'approval_status': approval,
                 'row_index': self.files_model.rowCount() - 1
             }
             print(f"Added file: {filename}")
@@ -549,5 +651,39 @@ class AdminDash(QWidget):
         for row in range(topLeft.row(), bottomRight.row() + 1):
             filename = self.files_model.item(row, 0).text()
             if filename in self.file_data_cache:
-                self.file_data_cache[filename]['time'] = self.files_model.item(row, 1).text()
+                self.file_data_cache[filename]['uploaded_date'] = self.files_model.item(row, 1).text()
                 self.file_data_cache[filename]['extension'] = self.files_model.item(row, 2).text()
+    
+    def _get_status_emoji(self, status):
+        """
+        Get emoji indicator for file status.
+        
+        Args:
+            status (str): File status
+            
+        Returns:
+            str: Emoji + status text
+        """
+        status_map = {
+            'available': '🟢 Available',
+            'soft_deleted': '🟡 Deleted',
+            'permanently_deleted': '🔴 Permanently Deleted'
+        }
+        return status_map.get(status, '⚪ Unknown')
+    
+    def _get_approval_emoji(self, approval):
+        """
+        Get emoji indicator for approval status.
+        
+        Args:
+            approval (str): Approval status
+            
+        Returns:
+            str: Emoji + approval text
+        """
+        approval_map = {
+            'pending': '🟡 Pending',
+            'accepted': '🟢 Accepted',
+            'rejected': '🔴 Rejected'
+        }
+        return approval_map.get(approval, '⚪ Unknown')

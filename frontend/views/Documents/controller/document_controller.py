@@ -121,6 +121,12 @@ class DocumentController:
                         break
             
             if file_to_delete:
+                # CRITICAL: Store which collections this file belongs to BEFORE removing
+                collections_containing_file = self._get_collections_containing_file(filename)
+                if collections_containing_file:
+                    file_to_delete['_original_collections'] = collections_containing_file
+                    print(f"📋 Storing collection membership for '{filename}': {collections_containing_file}")
+                
                 # Move physical file to RecycleBin
                 file_path = file_to_delete.get('file_path')
                 if file_path:
@@ -143,6 +149,13 @@ class DocumentController:
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
+                
+                # CRITICAL FIX: Remove file from all collections
+                success, msg, count = self.remove_file_from_all_collections(filename)
+                if success and count > 0:
+                    print(f"✓ Removed '{filename}' from {count} collection(s) during deletion")
+                elif not success:
+                    print(f"⚠ Warning: {msg}")
                 
                 return True, f"File '{filename}' moved to recycle bin"
             else:
@@ -188,10 +201,14 @@ class DocumentController:
                     if not result['success']:
                         return False, f"Failed to restore file from recycle bin: {result.get('error')}"
                 
+                # Get original collections this file belonged to
+                original_collections = file_to_restore.get('_original_collections', [])
+                
                 # Remove deletion metadata
                 file_to_restore.pop('deleted_at', None)
                 file_to_restore.pop('deleted_by', None)
                 file_to_restore.pop('recycle_bin_path', None)
+                file_to_restore.pop('_original_collections', None)  # Remove the tracking field
                 uploaded_files.append(file_to_restore)
                 
                 # Save updated data
@@ -200,6 +217,20 @@ class DocumentController:
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
+                
+                # CRITICAL FIX: Restore file back to its original collections
+                if original_collections:
+                    restored_count = 0
+                    for collection_name in original_collections:
+                        success, msg = self.add_file_to_collection(collection_name, file_to_restore)
+                        if success:
+                            restored_count += 1
+                            print(f"✓ Restored '{filename}' to collection '{collection_name}'")
+                        else:
+                            print(f"⚠ Warning: Could not restore to '{collection_name}': {msg}")
+                    
+                    if restored_count > 0:
+                        return True, f"File '{filename}' restored to {restored_count} collection(s)"
                 
                 return True, f"File '{filename}' restored successfully"
             else:
@@ -247,6 +278,13 @@ class DocumentController:
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
+                
+                # CRITICAL FIX: Also remove from collections (in case it wasn't removed during soft delete)
+                success, msg, count = self.remove_file_from_all_collections(filename)
+                if success and count > 0:
+                    print(f"✓ Removed '{filename}' from {count} collection(s) during permanent deletion")
+                elif not success:
+                    print(f"⚠ Warning: {msg}")
                 
                 return True, f"File '{filename}' permanently deleted"
             else:
@@ -337,6 +375,103 @@ class DocumentController:
             
         except Exception as e:
             return False, f"Error uploading file: {str(e)}", None
+    
+    def update_file(self, old_filename: str, new_filename: str = None, 
+                   category: str = None, description: str = None, 
+                   timestamp: str = None) -> Tuple[bool, str, Optional[Dict]]:
+        """
+        Update file metadata (filename, category, description).
+        
+        Args:
+            old_filename (str): Current filename
+            new_filename (str, optional): New filename (if renaming)
+            category (str, optional): New category
+            description (str, optional): New description
+            timestamp (str, optional): File timestamp for identification
+            
+        Returns:
+            tuple: (success: bool, message: str, updated_file_data: dict or None)
+        """
+        try:
+            files_path = get_mock_data_path('files_data.json')
+            with open(files_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            uploaded_files = data.get('uploaded_files', [])
+            
+            # Find the file to update
+            file_to_update = None
+            file_index = -1
+            for i, file_data in enumerate(uploaded_files):
+                if file_data['filename'] == old_filename:
+                    if timestamp is None or file_data.get('timestamp') == timestamp:
+                        file_to_update = file_data
+                        file_index = i
+                        break
+            
+            if file_to_update:
+                # Update filename if provided and different
+                if new_filename and new_filename != old_filename:
+                    file_to_update['filename'] = new_filename
+                    # Update extension if filename changed
+                    file_to_update['extension'] = new_filename.split('.')[-1] if '.' in new_filename else file_to_update.get('extension', '')
+                
+                # Update category if provided
+                if category is not None:
+                    file_to_update['category'] = category if category != 'N/A' else None
+                
+                # Update description if provided
+                if description is not None:
+                    file_to_update['description'] = description
+                
+                # Save updated data
+                uploaded_files[file_index] = file_to_update
+                data['uploaded_files'] = uploaded_files
+                
+                with open(files_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                
+                # Also update in collections if file exists there
+                if new_filename and new_filename != old_filename:
+                    self._update_file_in_collections(old_filename, file_to_update)
+                
+                return True, f"File '{new_filename or old_filename}' updated successfully", file_to_update
+            else:
+                return False, f"File '{old_filename}' not found", None
+                
+        except Exception as e:
+            return False, f"Error updating file: {str(e)}", None
+    
+    def _update_file_in_collections(self, old_filename: str, updated_file_data: Dict) -> None:
+        """
+        Update file data in all collections that contain it.
+        
+        Args:
+            old_filename (str): Original filename to find
+            updated_file_data (dict): New file data to replace with
+        """
+        try:
+            collections_path = get_mock_data_path('collections_data.json')
+            with open(collections_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            collections = data.get('collections', [])
+            updated = False
+            
+            for collection in collections:
+                files = collection.get('files', [])
+                for i, file_data in enumerate(files):
+                    if file_data.get('filename') == old_filename:
+                        # Update the file data in this collection
+                        collection['files'][i] = updated_file_data.copy()
+                        updated = True
+                        print(f"Updated '{old_filename}' in collection '{collection.get('name')}'")
+            
+            if updated:
+                with open(collections_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error updating file in collections: {str(e)}")
     
     def _remove_file_entry(self, filename: str) -> bool:
         """
@@ -534,6 +669,79 @@ class DocumentController:
             
         except Exception as e:
             return False, f"Error removing file from collection: {str(e)}"
+    
+    def _get_collections_containing_file(self, filename: str) -> List[str]:
+        """
+        Get list of collection names that contain a specific file.
+        
+        Args:
+            filename (str): Name of the file to search for
+            
+        Returns:
+            list: List of collection names containing this file
+        """
+        try:
+            collections_path = get_mock_data_path('collections_data.json')
+            with open(collections_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            collections = data.get('collections', [])
+            collection_names = []
+            
+            for collection in collections:
+                files = collection.get('files', [])
+                for file_data in files:
+                    if file_data.get('filename') == filename:
+                        collection_names.append(collection.get('name'))
+                        break
+            
+            return collection_names
+        except Exception as e:
+            print(f"Error getting collections containing file: {str(e)}")
+            return []
+    
+    def remove_file_from_all_collections(self, filename: str) -> Tuple[bool, str, int]:
+        """
+        Remove a file from ALL collections (used when file is deleted).
+        
+        Args:
+            filename (str): Name of the file to remove from all collections
+            
+        Returns:
+            tuple: (success: bool, message: str, count: int) - count is number of collections affected
+        """
+        try:
+            collections_path = get_mock_data_path('collections_data.json')
+            with open(collections_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            collections = data.get('collections', [])
+            collections_affected = 0
+            
+            # Search through all collections and remove the file
+            for collection in collections:
+                files = collection.get('files', [])
+                original_count = len(files)
+                
+                # Remove all instances of this filename from the collection
+                collection['files'] = [f for f in files if f.get('filename') != filename]
+                
+                # Track if this collection was affected
+                if len(collection['files']) < original_count:
+                    collections_affected += 1
+                    print(f"Removed '{filename}' from collection '{collection.get('name')}'")
+            
+            # Save updated collections data
+            if collections_affected > 0:
+                with open(collections_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                
+                return True, f"File removed from {collections_affected} collection(s)", collections_affected
+            else:
+                return True, "File was not in any collections", 0
+            
+        except Exception as e:
+            return False, f"Error removing file from collections: {str(e)}", 0
     
     # ==================== UTILITY METHODS ====================
     

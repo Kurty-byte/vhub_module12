@@ -64,6 +64,7 @@ class DeletedFileView(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemClicked.connect(self.handle_item_clicked)
+        self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
         # Load deleted files data using controller
         self.load_deleted_files()
@@ -75,13 +76,10 @@ class DeletedFileView(QWidget):
         widget = QWidget()
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        details_btn = QPushButton("Details")
         erase_btn = QPushButton("Erase")
         restore_btn = QPushButton("Restore")
-        details_btn.clicked.connect(lambda: self.show_file_details(filename, deleted_at))
         erase_btn.clicked.connect(lambda: self.handle_permanent_delete(filename, deleted_at))
         restore_btn.clicked.connect(lambda: self.handle_restore(filename, deleted_at))
-        layout.addWidget(details_btn)
         layout.addWidget(erase_btn)
         layout.addWidget(restore_btn)
         widget.setLayout(layout)
@@ -116,9 +114,22 @@ class DeletedFileView(QWidget):
         self.table.setCellWidget(row, 4, actions_widget)
 
     def handle_item_clicked(self, item):
-        if item.column() != 3:  # Not actions column
+        if item.column() != 4:  # Not actions column
             filename = self.table.item(item.row(), 0).text()
             print(f"Deleted file row clicked: {filename}")
+    
+    def handle_item_double_clicked(self, item):
+        """Handle table item double-click - show file details dialog"""
+        if item.column() != 4:  # Not actions column
+            filename = self.table.item(item.row(), 0).text()
+            # Need to find the deleted_at timestamp for this file
+            files_data = self.controller.get_deleted_files()
+            deleted_at = None
+            for f in files_data:
+                if f['filename'] == filename:
+                    deleted_at = f.get('deleted_at')
+                    break
+            self.show_file_details(filename, deleted_at)
     
     def load_deleted_files(self):
         """Load and populate deleted files table with days remaining (initial load)"""
@@ -321,7 +332,7 @@ class DeletedFileView(QWidget):
                 self.refresh_deleted_files()
     
     def show_file_details(self, filename, deleted_at=None):
-        """Show file details dialog"""
+        """Show file details dialog using custom widget"""
         # Get file details from deleted files
         files_data = self.controller.get_deleted_files()
         file_data = None
@@ -336,26 +347,36 @@ class DeletedFileView(QWidget):
             # Get extended info with days remaining
             file_info = self.controller.get_recycle_bin_file_info(filename, deleted_at)
             
-            age_days = file_info.get('age_days', 'N/A') if file_info else 'N/A'
-            days_remaining = file_info.get('days_remaining', 'N/A') if file_info else 'N/A'
+            if file_info:
+                file_data['days_remaining'] = file_info.get('days_remaining')
+                file_data['age_days'] = file_info.get('age_days')
             
-            details_text = f"""
-Filename: {file_data['filename']}
-Extension: {file_data['extension']}
-Category: {file_data.get('category', 'N/A')}
-Uploaded by: {file_data.get('uploader', 'N/A')}
-Upload Date: {file_data.get('uploaded_date', 'N/A')}
-Deleted at: {file_data.get('deleted_at', 'N/A')}
-Deleted by: {file_data.get('deleted_by', 'N/A')}
-Days in Recycle Bin: {age_days}
-Days Until Auto-Delete: {days_remaining}
-File Path: {file_data.get('file_path', 'N/A')}
-
-Note: Files are automatically deleted after 15 days in the Recycle Bin.
-            """
-            QMessageBox.information(self, f"File Details - {filename}", details_text.strip())
+            from .file_details_dialog import FileDetailsDialog
+            dialog = FileDetailsDialog(
+                self, 
+                file_data=file_data, 
+                controller=self.controller,
+                is_deleted=True  # Important: this is a deleted file
+            )
+            dialog.file_deleted.connect(self.on_file_action_from_dialog)
+            dialog.file_restored.connect(self.on_file_restored_from_dialog)
+            dialog.exec()
         else:
             QMessageBox.warning(self, "Error", f"Could not find details for '{filename}'")
+    
+    def on_file_action_from_dialog(self, file_data):
+        """Handle file deleted signal from details dialog"""
+        print(f"File action from dialog: {file_data}")
+        # Refresh deleted files table
+        self.refresh_deleted_files()
+    
+    def on_file_restored_from_dialog(self, file_data):
+        """Handle file restored signal from details dialog"""
+        print(f"File restored from dialog: {file_data}")
+        # Forward the signal to parent (AdminDash)
+        self.file_restored.emit(file_data)
+        # Refresh deleted files table
+        self.refresh_deleted_files()
     
     def _get_cache_key(self, filename, deleted_at):
         """Generate unique cache key from filename and deleted_at timestamp"""
