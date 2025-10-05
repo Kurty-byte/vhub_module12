@@ -2,10 +2,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton,
                              QHBoxLayout, QTableWidget, QTableWidgetItem,
                              QHeaderView, QLineEdit, QStackedWidget, QMessageBox)
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from ..controller.document_controller import DocumentController
+from ..utils.icon_utils import create_back_button, create_search_button
 
 class DeletedFileView(QWidget):
+    file_restored = pyqtSignal(dict)  # Signal to notify parent of file restoration
+    
     def __init__(self, username, roles, primary_role, token, stack=None):
         super().__init__()
 
@@ -19,32 +22,43 @@ class DeletedFileView(QWidget):
 
         self.stack: QStackedWidget = stack
         self.setWindowTitle("Deleted Files")
+        
+        # Track file data for efficient incremental updates
+        self.file_data_cache = {}  # {'filename': {'time': ..., 'extension': ..., 'deleted_at': ..., 'days_remaining': ..., 'row_index': ...}}
+        
         main_layout = QVBoxLayout()
 
         # Header with back button
         header_layout = QHBoxLayout()
-        back_btn = QPushButton("← Back")
+        back_btn = create_back_button(callback=self.go_back)
 
         search_bar = QLineEdit()
-        search_button = QPushButton("Search")
-        search_button.clicked.connect(lambda: print("Search button clicked"))
+        search_button = create_search_button(callback=lambda: print("Search button clicked"))
         search_bar.setPlaceholderText("Search Deleted Files...")
         search_bar.setMinimumWidth(200)
-
-        back_btn.clicked.connect(self.go_back)
         header = QLabel("Deleted Files")
         header.setFont(QFont("Arial", 16))
+        
+        # Restore All and Erase All buttons
+        restore_all_btn = QPushButton("Restore All")
+        restore_all_btn.clicked.connect(self.handle_restore_all)
+        
+        erase_all_btn = QPushButton("Erase All")
+        erase_all_btn.clicked.connect(self.handle_erase_all)
+        
         header_layout.addWidget(header)
         header_layout.addStretch()
+        header_layout.addWidget(restore_all_btn)
+        header_layout.addWidget(erase_all_btn)
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
         header_layout.addWidget(back_btn)
         main_layout.addLayout(header_layout)
 
-        # Table logic (same as CollectionView)
+        # Table logic with Days Remaining column
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Filename", "Time", "Extension", "Actions"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Filename", "Time", "Extension", "Days Remaining", "Actions"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -72,20 +86,34 @@ class DeletedFileView(QWidget):
         layout.addWidget(restore_btn)
         widget.setLayout(layout)
         return widget
+    
+    def create_days_remaining_item(self, days_remaining):
+        """Create a colored item based on days remaining"""
+        if days_remaining is None:
+            item = QTableWidgetItem("N/A")
+        else:
+            item = QTableWidgetItem(f"{days_remaining} days")
+            # Color code based on urgency
+            if days_remaining <= 3:
+                item.setForeground(Qt.GlobalColor.red)
+            elif days_remaining <= 7:
+                item.setForeground(Qt.GlobalColor.darkYellow)
+        return item
 
     def go_back(self):
         print("Back button clicked")
         if self.stack:
             self.stack.setCurrentIndex(0)  # Assuming dashboard is at index 0
 
-    def add_file_to_table(self, name, time, ext, deleted_at=None):
+    def add_file_to_table(self, name, time, ext, deleted_at=None, days_remaining=None):
         row = self.table.rowCount()
         self.table.insertRow(row)
         self.table.setItem(row, 0, QTableWidgetItem(name))
         self.table.setItem(row, 1, QTableWidgetItem(time))
         self.table.setItem(row, 2, QTableWidgetItem(ext))
+        self.table.setItem(row, 3, self.create_days_remaining_item(days_remaining))
         actions_widget = self.create_actions_widget(name, deleted_at)
-        self.table.setCellWidget(row, 3, actions_widget)
+        self.table.setCellWidget(row, 4, actions_widget)
 
     def handle_item_clicked(self, item):
         if item.column() != 3:  # Not actions column
@@ -93,19 +121,41 @@ class DeletedFileView(QWidget):
             print(f"Deleted file row clicked: {filename}")
     
     def load_deleted_files(self):
-        """Load and populate deleted files table"""
-        # Clear existing rows
+        """Load and populate deleted files table with days remaining (initial load)"""
+        # Clear existing rows and cache
         self.table.setRowCount(0)
+        self.file_data_cache.clear()
         
         # Get deleted files from controller
         files_data = self.controller.get_deleted_files()
-        for file_data in files_data:
+        for idx, file_data in enumerate(files_data):
+            # Get file info with age calculation
+            file_info = self.controller.get_recycle_bin_file_info(
+                file_data['filename'], 
+                file_data.get('deleted_at')
+            )
+            
+            days_remaining = None
+            if file_info:
+                days_remaining = file_info.get('days_remaining')
+            
             self.add_file_to_table(
                 file_data['filename'], 
                 file_data.get('time', 'N/A'), 
                 file_data['extension'],
-                file_data.get('deleted_at')
+                file_data.get('deleted_at'),
+                days_remaining
             )
+            
+            # Track file data in cache
+            cache_key = self._get_cache_key(file_data['filename'], file_data.get('deleted_at'))
+            self.file_data_cache[cache_key] = {
+                'time': file_data.get('time', 'N/A'),
+                'extension': file_data['extension'],
+                'deleted_at': file_data.get('deleted_at'),
+                'days_remaining': days_remaining,
+                'row_index': idx
+            }
     
     def handle_restore(self, filename, deleted_at=None):
         """Restore a deleted file"""
@@ -123,8 +173,10 @@ class DeletedFileView(QWidget):
             
             if success:
                 QMessageBox.information(self, "Success", message)
-                # Refresh the table
-                self.load_deleted_files()
+                # Emit signal to notify parent
+                self.file_restored.emit({'filename': filename, 'deleted_at': deleted_at})
+                # Remove file incrementally instead of full reload
+                self._remove_file_from_table(filename, deleted_at)
             else:
                 QMessageBox.warning(self, "Error", message)
     
@@ -144,10 +196,129 @@ class DeletedFileView(QWidget):
             
             if success:
                 QMessageBox.information(self, "Success", message)
-                # Refresh the table
-                self.load_deleted_files()
+                # Remove file incrementally instead of full reload
+                self._remove_file_from_table(filename, deleted_at)
             else:
                 QMessageBox.warning(self, "Error", message)
+    
+    def handle_restore_all(self):
+        """Restore all deleted files"""
+        # Get all deleted files
+        files_data = self.controller.get_deleted_files()
+        
+        if not files_data:
+            QMessageBox.information(self, "No Files", "There are no deleted files to restore.")
+            return
+        
+        # Confirmation dialog
+        reply = QMessageBox.question(
+            self, 
+            'Confirm Restore All',
+            f"Are you sure you want to restore all {len(files_data)} deleted file(s)?\n\nAll files will be moved back to uploaded files.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            success_count = 0
+            failed_count = 0
+            error_messages = []
+            
+            # Restore each file
+            for file_data in files_data:
+                filename = file_data['filename']
+                deleted_at = file_data.get('deleted_at')
+                
+                success, message = self.controller.restore_file(filename, deleted_at)
+                
+                if success:
+                    success_count += 1
+                    # Emit signal to notify parent
+                    self.file_restored.emit({'filename': filename, 'deleted_at': deleted_at})
+                else:
+                    failed_count += 1
+                    error_messages.append(f"- {filename}: {message}")
+            
+            # Show results
+            if failed_count == 0:
+                QMessageBox.information(
+                    self, 
+                    "Success", 
+                    f"Successfully restored all {success_count} file(s)!"
+                )
+            else:
+                result_msg = f"Restored: {success_count} file(s)\nFailed: {failed_count} file(s)\n\nErrors:\n"
+                result_msg += "\n".join(error_messages[:5])  # Show first 5 errors
+                if len(error_messages) > 5:
+                    result_msg += f"\n... and {len(error_messages) - 5} more"
+                QMessageBox.warning(self, "Partial Success", result_msg)
+            
+            # Refresh the table
+            self.load_deleted_files()
+    
+    def handle_erase_all(self):
+        """Permanently delete all files"""
+        # Get all deleted files
+        files_data = self.controller.get_deleted_files()
+        
+        if not files_data:
+            QMessageBox.information(self, "No Files", "There are no deleted files to erase.")
+            return
+        
+        # Confirmation dialog with strong warning
+        reply = QMessageBox.warning(
+            self, 
+            'Confirm Erase All',
+            f"⚠️ WARNING ⚠️\n\nAre you sure you want to PERMANENTLY delete all {len(files_data)} file(s)?\n\n"
+            f"This action CANNOT be undone!\n\nAll files will be removed from the Recycle Bin forever.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Double confirmation for destructive action
+            reply2 = QMessageBox.warning(
+                self,
+                'Final Confirmation',
+                f"This is your LAST CHANCE!\n\n{len(files_data)} file(s) will be permanently deleted.\n\nAre you absolutely sure?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply2 == QMessageBox.StandardButton.Yes:
+                success_count = 0
+                failed_count = 0
+                error_messages = []
+                
+                # Delete each file
+                for file_data in files_data:
+                    filename = file_data['filename']
+                    deleted_at = file_data.get('deleted_at')
+                    
+                    success, message = self.controller.permanent_delete_file(filename, deleted_at)
+                    
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        error_messages.append(f"- {filename}: {message}")
+                
+                # Show results
+                if failed_count == 0:
+                    QMessageBox.information(
+                        self, 
+                        "Success", 
+                        f"Successfully erased all {success_count} file(s) permanently."
+                    )
+                else:
+                    result_msg = f"Erased: {success_count} file(s)\nFailed: {failed_count} file(s)\n\nErrors:\n"
+                    result_msg += "\n".join(error_messages[:5])  # Show first 5 errors
+                    if len(error_messages) > 5:
+                        result_msg += f"\n... and {len(error_messages) - 5} more"
+                    QMessageBox.warning(self, "Partial Success", result_msg)
+                
+                # Refresh with incremental update
+                self.refresh_deleted_files()
     
     def show_file_details(self, filename, deleted_at=None):
         """Show file details dialog"""
@@ -162,6 +333,12 @@ class DeletedFileView(QWidget):
                     break
         
         if file_data:
+            # Get extended info with days remaining
+            file_info = self.controller.get_recycle_bin_file_info(filename, deleted_at)
+            
+            age_days = file_info.get('age_days', 'N/A') if file_info else 'N/A'
+            days_remaining = file_info.get('days_remaining', 'N/A') if file_info else 'N/A'
+            
             details_text = f"""
 Filename: {file_data['filename']}
 Extension: {file_data['extension']}
@@ -170,8 +347,140 @@ Uploaded by: {file_data.get('uploader', 'N/A')}
 Upload Date: {file_data.get('uploaded_date', 'N/A')}
 Deleted at: {file_data.get('deleted_at', 'N/A')}
 Deleted by: {file_data.get('deleted_by', 'N/A')}
+Days in Recycle Bin: {age_days}
+Days Until Auto-Delete: {days_remaining}
 File Path: {file_data.get('file_path', 'N/A')}
+
+Note: Files are automatically deleted after 15 days in the Recycle Bin.
             """
             QMessageBox.information(self, f"File Details - {filename}", details_text.strip())
         else:
             QMessageBox.warning(self, "Error", f"Could not find details for '{filename}'")
+    
+    def _get_cache_key(self, filename, deleted_at):
+        """Generate unique cache key from filename and deleted_at timestamp"""
+        return f"{filename}|{deleted_at}"
+    
+    def _remove_file_from_table(self, filename, deleted_at=None):
+        """Remove a single file from table incrementally"""
+        cache_key = self._get_cache_key(filename, deleted_at)
+        
+        if cache_key in self.file_data_cache:
+            row_idx = self.file_data_cache[cache_key]['row_index']
+            self.table.removeRow(row_idx)
+            del self.file_data_cache[cache_key]
+            
+            # Rebuild indices after removal
+            self._rebuild_file_indices()
+            print(f"Removed deleted file from UI: {filename}")
+        else:
+            # Fallback to full refresh if not found in cache
+            print(f"File '{filename}' not found in cache, doing full refresh")
+            self.refresh_deleted_files()
+    
+    def refresh_deleted_files(self):
+        """Efficiently refresh deleted files with incremental updates"""
+        # Get fresh data from controller
+        files_data = self.controller.get_deleted_files()
+        
+        # Build fresh data dict with cache keys
+        fresh_files = {}
+        for file_data in files_data:
+            # Get file info with age calculation
+            file_info = self.controller.get_recycle_bin_file_info(
+                file_data['filename'], 
+                file_data.get('deleted_at')
+            )
+            
+            days_remaining = None
+            if file_info:
+                days_remaining = file_info.get('days_remaining')
+            
+            cache_key = self._get_cache_key(file_data['filename'], file_data.get('deleted_at'))
+            fresh_files[cache_key] = {
+                'filename': file_data['filename'],
+                'time': file_data.get('time', 'N/A'),
+                'extension': file_data['extension'],
+                'deleted_at': file_data.get('deleted_at'),
+                'days_remaining': days_remaining
+            }
+        
+        current_keys = set(self.file_data_cache.keys())
+        fresh_keys = set(fresh_files.keys())
+        
+        # Identify changes
+        removed_files = current_keys - fresh_keys
+        new_files = fresh_keys - current_keys
+        existing_files = current_keys & fresh_keys
+        
+        # Check for modified files (days remaining may change)
+        modified_files = set()
+        for cache_key in existing_files:
+            cached = self.file_data_cache[cache_key]
+            fresh = fresh_files[cache_key]
+            if (cached['time'] != fresh['time'] or 
+                cached['extension'] != fresh['extension'] or
+                cached['days_remaining'] != fresh['days_remaining']):
+                modified_files.add(cache_key)
+        
+        # Remove deleted files (sort by row index descending)
+        for cache_key in sorted(removed_files, 
+                               key=lambda k: self.file_data_cache[k]['row_index'], 
+                               reverse=True):
+            row_idx = self.file_data_cache[cache_key]['row_index']
+            self.table.removeRow(row_idx)
+            del self.file_data_cache[cache_key]
+            print(f"Removed deleted file: {cache_key}")
+        
+        # Update modified files
+        for cache_key in modified_files:
+            row_idx = self.file_data_cache[cache_key]['row_index']
+            fresh = fresh_files[cache_key]
+            
+            self.table.item(row_idx, 0).setText(fresh['filename'])
+            self.table.item(row_idx, 1).setText(fresh['time'])
+            self.table.item(row_idx, 2).setText(fresh['extension'])
+            self.table.setItem(row_idx, 3, self.create_days_remaining_item(fresh['days_remaining']))
+            
+            # Update cache
+            self.file_data_cache[cache_key]['time'] = fresh['time']
+            self.file_data_cache[cache_key]['extension'] = fresh['extension']
+            self.file_data_cache[cache_key]['days_remaining'] = fresh['days_remaining']
+            print(f"Updated deleted file: {cache_key}")
+        
+        # Add new files
+        for cache_key in new_files:
+            fresh = fresh_files[cache_key]
+            self.add_file_to_table(
+                fresh['filename'], 
+                fresh['time'], 
+                fresh['extension'],
+                fresh['deleted_at'],
+                fresh['days_remaining']
+            )
+            
+            # Add to cache
+            self.file_data_cache[cache_key] = {
+                'time': fresh['time'],
+                'extension': fresh['extension'],
+                'deleted_at': fresh['deleted_at'],
+                'days_remaining': fresh['days_remaining'],
+                'row_index': self.table.rowCount() - 1
+            }
+            print(f"Added deleted file: {cache_key}")
+        
+        # Rebuild row indices after removals
+        if removed_files:
+            self._rebuild_file_indices()
+        
+        print(f"Refreshed deleted files with incremental updates")
+    
+    def _rebuild_file_indices(self):
+        """Rebuild row indices in file_data_cache after removals"""
+        for row_idx in range(self.table.rowCount()):
+            filename = self.table.item(row_idx, 0).text()
+            # Need to find the cache key for this row
+            for cache_key, cached_data in self.file_data_cache.items():
+                if cache_key.startswith(filename + "|"):
+                    cached_data['row_index'] = row_idx
+                    break

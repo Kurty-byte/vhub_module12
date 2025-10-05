@@ -200,7 +200,7 @@ class FileUploadDialog(QDialog):
         self.filename_input.selectAll()
     
     def handle_upload(self):
-        """Handle upload button click"""
+        """Handle upload button click with duplicate detection"""
         # Validate file selection
         if not self.selected_file_path:
             QMessageBox.warning(
@@ -228,61 +228,128 @@ class FileUploadDialog(QDialog):
         from ..services.file_storage_service import FileStorageService
         from ..services.document_crud_service import DocumentCRUDService
         
-        # Save file to storage
+        # Check for duplicate filename
         storage_service = FileStorageService()
-        save_result = storage_service.save_file(
-            self.selected_file_path,
-            custom_name=filename,
-            category=category if category != "None" else None
-        )
+        base_filename = os.path.splitext(filename)[0]
+        is_duplicate = storage_service.check_duplicate_filename(base_filename)
         
-        if not save_result.get("success"):
-            QMessageBox.critical(
+        force_override = False
+        
+        if is_duplicate:
+            # Show duplicate confirmation dialog
+            reply = QMessageBox.question(
                 self,
-                "Upload Failed",
-                f"Failed to save file: {save_result.get('error', 'Unknown error')}"
+                "Duplicate File Detected",
+                f"A file named '{base_filename}' already exists.\n\n"
+                "Click 'Yes' to override the existing file.\n"
+                "Click 'No' to keep both files (new file will be renamed).\n"
+                "Click 'Cancel' to cancel the upload.",
+                QMessageBox.StandardButton.Yes | 
+                QMessageBox.StandardButton.No | 
+                QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.No
             )
-            return
-        
-        # Add to database
-        crud_service = DocumentCRUDService()
-        
-        if collection_id:
-            db_result = crud_service.add_file_to_collection(
-                collection_id,
-                save_result["filename"],
-                save_result["file_path"],
-                category,
-                save_result["extension"],
-                self.username,
-                self.role
-            )
-        else:
-            # Add as standalone file
-            db_result = crud_service.add_file_standalone(
-                save_result["filename"],
-                save_result["file_path"],
-                category,
-                save_result["extension"],
-                self.username,
-                self.role
-            )
-        
-        if db_result.get("success"):
-            # Emit signal with file data
-            self.file_uploaded.emit(db_result.get("file"))
             
-            QMessageBox.information(
-                self,
-                "Success",
-                f"File '{filename}' uploaded successfully!"
+            if reply == QMessageBox.StandardButton.Cancel:
+                return  # Cancel upload
+            elif reply == QMessageBox.StandardButton.Yes:
+                force_override = True  # Override existing file
+            # If No, continue with auto-rename (force_override stays False)
+        
+        # Different workflow for collection vs standalone upload
+        if collection_id is not None:
+            # Upload to collection - use physical file storage + CRUD service
+            # This avoids duplicate entries in uploaded_files
+            
+            # First, save the physical file
+            storage_service = FileStorageService()
+            
+            # Check for duplicate and generate unique name if needed
+            base_filename = os.path.splitext(filename)[0]
+            is_duplicate = storage_service.check_duplicate_filename(base_filename)
+            
+            if is_duplicate and not force_override:
+                filename = storage_service.generate_unique_filename(base_filename)
+                # Add extension back
+                _, ext = os.path.splitext(self.selected_file_path)
+                filename = filename + ext
+            
+            # Save physical file
+            result = storage_service.save_file(
+                self.selected_file_path, 
+                filename, 
+                category if category != "None" else None
             )
-            self.accept()  # Close dialog with success status
+            
+            if not result['success']:
+                QMessageBox.critical(
+                    self,
+                    "Upload Failed",
+                    result.get('error', 'Failed to save file')
+                )
+                return
+            
+            # Now add to collection (this also adds to uploaded_files automatically)
+            crud_service = DocumentCRUDService()
+            collection_result = crud_service.add_file_to_collection(
+                collection_id,
+                result['filename'],
+                result['file_path'],
+                category if category != "None" else None,
+                result['extension'],
+                self.username,
+                self.role
+            )
+            
+            if collection_result.get('success'):
+                # Emit signal with file data
+                file_data = collection_result.get('file')
+                self.file_uploaded.emit(file_data)
+                
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    "File uploaded to collection successfully!"
+                )
+                self.accept()
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Upload Failed",
+                    f"Failed to add file to collection:\n{collection_result.get('error')}"
+                )
         else:
-            QMessageBox.critical(
-                self,
-                "Upload Failed",
-                f"Failed to save file data: {db_result.get('error', 'Unknown error')}"
+            # Standalone upload - use controller
+            from ..controller.document_controller import DocumentController
+            
+            controller = DocumentController(
+                self.username, 
+                [], 
+                self.role, 
+                ""
             )
-            # Clean up the physical file if database save failed
-            storage_service.delete_file(save_result["file_path"])
+            
+            success, message, file_data = controller.upload_file(
+                self.selected_file_path,
+                custom_name=filename,
+                category=category if category != "None" else None,
+                description=description,
+                force_override=force_override
+            )
+            
+            if success:
+                # Emit signal with file data
+                self.file_uploaded.emit(file_data)
+                
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    message
+                )
+                self.accept()  # Close dialog with success status
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Upload Failed",
+                    message
+                )

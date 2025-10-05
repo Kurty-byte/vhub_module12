@@ -95,7 +95,7 @@ class DocumentController:
     
     def delete_file(self, filename: str, timestamp: str = None) -> Tuple[bool, str]:
         """
-        Soft delete a file (move to deleted_files array).
+        Soft delete a file (move to deleted_files array and RecycleBin directory).
         
         Args:
             filename (str): Name of the file to delete
@@ -121,8 +121,19 @@ class DocumentController:
                         break
             
             if file_to_delete:
+                # Move physical file to RecycleBin
+                file_path = file_to_delete.get('file_path')
+                if file_path:
+                    result = self.file_storage.move_to_recycle_bin(file_path)
+                    if result['success']:
+                        file_to_delete['recycle_bin_path'] = result['recycle_bin_path']
+                        file_to_delete['deleted_at'] = result['deleted_at']
+                    else:
+                        return False, f"Failed to move file to recycle bin: {result.get('error')}"
+                else:
+                    file_to_delete['deleted_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
                 # Add deletion metadata
-                file_to_delete['deleted_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 file_to_delete['deleted_by'] = self.username
                 deleted_files.append(file_to_delete)
                 
@@ -133,7 +144,7 @@ class DocumentController:
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
                 
-                return True, f"File '{filename}' deleted successfully"
+                return True, f"File '{filename}' moved to recycle bin"
             else:
                 return False, f"File '{filename}' not found"
                 
@@ -142,7 +153,7 @@ class DocumentController:
     
     def restore_file(self, filename: str, deleted_at: str = None) -> Tuple[bool, str]:
         """
-        Restore a soft-deleted file.
+        Restore a soft-deleted file from RecycleBin.
         
         Args:
             filename (str): Name of the file to restore
@@ -168,9 +179,19 @@ class DocumentController:
                         break
             
             if file_to_restore:
+                # Restore physical file from RecycleBin
+                recycle_bin_path = file_to_restore.get('recycle_bin_path')
+                original_path = file_to_restore.get('file_path')
+                
+                if recycle_bin_path and original_path:
+                    result = self.file_storage.restore_from_recycle_bin(recycle_bin_path, original_path)
+                    if not result['success']:
+                        return False, f"Failed to restore file from recycle bin: {result.get('error')}"
+                
                 # Remove deletion metadata
                 file_to_restore.pop('deleted_at', None)
                 file_to_restore.pop('deleted_by', None)
+                file_to_restore.pop('recycle_bin_path', None)
                 uploaded_files.append(file_to_restore)
                 
                 # Save updated data
@@ -189,7 +210,7 @@ class DocumentController:
     
     def permanent_delete_file(self, filename: str, deleted_at: str = None) -> Tuple[bool, str]:
         """
-        Permanently delete a file from deleted_files and file system.
+        Permanently delete a file from deleted_files and RecycleBin.
         
         Args:
             filename (str): Name of the file to permanently delete
@@ -214,12 +235,12 @@ class DocumentController:
                         break
             
             if file_to_delete:
-                # Delete physical file if exists
-                file_path = file_to_delete.get('file_path')
-                if file_path:
-                    full_path = os.path.join(self.file_storage.storage_directory, file_path)
-                    if os.path.exists(full_path):
-                        os.remove(full_path)
+                # Delete physical file from RecycleBin
+                recycle_bin_path = file_to_delete.get('recycle_bin_path')
+                if recycle_bin_path:
+                    result = self.file_storage.permanent_delete_from_recycle_bin(recycle_bin_path)
+                    if not result['success']:
+                        print(f"Warning: Failed to delete from recycle bin: {result.get('error')}")
                 
                 # Save updated data
                 data['deleted_files'] = deleted_files
@@ -235,22 +256,45 @@ class DocumentController:
             return False, f"Error permanently deleting file: {str(e)}"
     
     def upload_file(self, source_path: str, custom_name: str = None, 
-                   category: str = None, description: str = None) -> Tuple[bool, str, Optional[Dict]]:
+                   category: str = None, description: str = None, 
+                   force_override: bool = False) -> Tuple[bool, str, Optional[Dict]]:
         """
-        Upload a new file.
+        Upload a new file with duplicate handling.
         
         Args:
             source_path (str): Path to the source file
             custom_name (str, optional): Custom name for the file
             category (str, optional): Category for the file
             description (str, optional): File description
+            force_override (bool): If True, override existing file with same name
             
         Returns:
             tuple: (success: bool, message: str, file_data: dict or None)
         """
         try:
+            # Determine the filename to use
+            if custom_name:
+                base_name = os.path.splitext(custom_name)[0]
+            else:
+                original_name = os.path.basename(source_path)
+                base_name = os.path.splitext(original_name)[0]
+            
+            # Check for duplicate
+            is_duplicate = self.file_storage.check_duplicate_filename(base_name)
+            
+            if is_duplicate:
+                if force_override:
+                    # Override: delete the old file entry
+                    self._remove_file_entry(base_name)
+                    final_name = base_name
+                else:
+                    # Auto-rename with (#)
+                    final_name = self.file_storage.generate_unique_filename(base_name)
+            else:
+                final_name = base_name
+            
             # Save file using storage service
-            result = self.file_storage.save_file(source_path, custom_name, category)
+            result = self.file_storage.save_file(source_path, final_name, category)
             
             if not result['success']:
                 return False, result.get('error', 'Upload failed'), None
@@ -283,10 +327,43 @@ class DocumentController:
             with open(files_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
             
-            return True, "File uploaded successfully", file_data
+            success_msg = "File uploaded successfully"
+            if is_duplicate and not force_override:
+                success_msg += f" as '{final_name}'"
+            elif is_duplicate and force_override:
+                success_msg += " (previous version replaced)"
+            
+            return True, success_msg, file_data
             
         except Exception as e:
             return False, f"Error uploading file: {str(e)}", None
+    
+    def _remove_file_entry(self, filename: str) -> bool:
+        """
+        Remove a file entry from JSON (used for override).
+        
+        Args:
+            filename (str): Filename to remove
+            
+        Returns:
+            bool: True if removed, False otherwise
+        """
+        try:
+            files_path = get_mock_data_path('files_data.json')
+            with open(files_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            uploaded_files = data.get('uploaded_files', [])
+            # Remove file with matching filename
+            data['uploaded_files'] = [f for f in uploaded_files if f.get('filename') != filename]
+            
+            with open(files_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            
+            return True
+        except Exception as e:
+            print(f"Error removing file entry: {e}")
+            return False
     
     # ==================== COLLECTION OPERATIONS ====================
     
@@ -488,6 +565,84 @@ class DocumentController:
             dict: Storage information
         """
         return get_storage_data()
+    
+    def cleanup_old_recycle_bin_files(self, days: int = 15) -> Tuple[bool, str, int]:
+        """
+        Automatically cleanup files from RecycleBin older than specified days.
+        Also removes them from deleted_files in JSON.
+        
+        Args:
+            days (int): Number of days after which files should be deleted (default: 15)
+            
+        Returns:
+            tuple: (success: bool, message: str, count: int)
+        """
+        try:
+            # Cleanup physical files from RecycleBin
+            result = self.file_storage.cleanup_old_recycle_bin_files(days)
+            
+            if not result['success']:
+                return False, result.get('error', 'Cleanup failed'), 0
+            
+            deleted_filenames = result.get('deleted_files', [])
+            deleted_count = result.get('deleted_count', 0)
+            
+            if deleted_count > 0:
+                # Remove entries from deleted_files in JSON
+                files_path = get_mock_data_path('files_data.json')
+                with open(files_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                deleted_files = data.get('deleted_files', [])
+                
+                # Filter out files that were auto-deleted
+                updated_deleted_files = []
+                for file_data in deleted_files:
+                    recycle_bin_path = file_data.get('recycle_bin_path')
+                    if recycle_bin_path not in deleted_filenames:
+                        updated_deleted_files.append(file_data)
+                
+                data['deleted_files'] = updated_deleted_files
+                
+                with open(files_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                
+                return True, f"Automatically cleaned up {deleted_count} old file(s) from recycle bin", deleted_count
+            else:
+                return True, "No old files to cleanup", 0
+                
+        except Exception as e:
+            return False, f"Error during cleanup: {str(e)}", 0
+    
+    def get_recycle_bin_file_info(self, filename: str, deleted_at: str = None) -> Optional[Dict]:
+        """
+        Get information about a file in the recycle bin including its age.
+        
+        Args:
+            filename (str): Name of the file
+            deleted_at (str, optional): Deletion timestamp
+            
+        Returns:
+            dict or None: File info with age_days, days_remaining
+        """
+        try:
+            deleted_files = self.get_deleted_files()
+            
+            for file_data in deleted_files:
+                if file_data['filename'] == filename:
+                    if deleted_at is None or file_data.get('deleted_at') == deleted_at:
+                        recycle_bin_path = file_data.get('recycle_bin_path')
+                        if recycle_bin_path:
+                            age_days = self.file_storage.get_recycle_bin_file_age(recycle_bin_path)
+                            if age_days is not None:
+                                file_data['age_days'] = age_days
+                                file_data['days_remaining'] = max(0, 15 - age_days)
+                        return file_data
+            
+            return None
+        except Exception as e:
+            print(f"Error getting recycle bin file info: {str(e)}")
+            return None
     
     def can_edit_file(self, file_data: Dict) -> bool:
         """

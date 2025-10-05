@@ -3,6 +3,7 @@ from PyQt6.QtGui import QFont
 from .Users.Admin.AdminDash import AdminDash
 from .Users.Non_Admin.Dash import UserDash
 from .utils.role_utils import RoleRouter
+from .Mock.initializer import initialize_documents_data
 
 
 class DocumentsView(QWidget):
@@ -11,6 +12,8 @@ class DocumentsView(QWidget):
     
     This view automatically routes users to the appropriate dashboard
     based on their role using the RoleRouter utility.
+    
+    Also handles initialization of JSON data files on first access.
     """
     
     def __init__(self, username, roles, primary_role, token):
@@ -20,6 +23,9 @@ class DocumentsView(QWidget):
         self.roles = roles
         self.primary_role = primary_role
         self.token = token
+        
+        # Initialize data files on first access
+        initialize_documents_data()
         
         main_layout = QVBoxLayout(self)
         

@@ -6,7 +6,31 @@ This folder contains mock data files used by the Document Management interface f
 
 The actual data files (`*.json`) are **NOT tracked by git** to prevent committing user-generated test data. 
 
-**Don't worry!** The application automatically creates these files with proper default structures on first run if they don't exist. Thanks to the robust error handling in `data_loader.py`, missing files are handled gracefully.
+**Don't worry!** The application automatically creates these files with proper default structures on first run if they don't exist. Thanks to the robust error handling in `data_loader.py` and the new `initializer.py`, missing files are handled gracefully.
+
+## 🚀 Auto-Initialization
+
+When you first navigate to the Documents section, the system automatically:
+1. **Creates JSON files** if they don't exist
+2. **Sets up default collections**: Syllabus, Memo, Forms, and Others
+3. **Initializes storage data** with default values
+4. **Logs the process** to the console for transparency
+
+**Default Collections Created:**
+- **Syllabus** - Course syllabi and curriculum documents
+- **Memo** - Official memorandums and announcements  
+- **Forms** - Administrative forms and templates
+- **Others** - Miscellaneous documents and files
+
+To manually initialize or reset data, run:
+```bash
+python test_initialization.py
+```
+or
+```bash
+cd frontend/views/Documents/Mock
+python initializer.py
+```
 
 ## Files
 

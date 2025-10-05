@@ -28,13 +28,13 @@ class IconLoader:
     @staticmethod
     def get_assets_path():
         """
-        Get the absolute path to the Assets folder.
+        Get the absolute path to the assets folder.
         
         Returns:
-            str: Absolute path to the Assets folder
+            str: Absolute path to the assets folder
         """
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        assets_path = os.path.join(current_dir, '..', 'Assets')
+        assets_path = os.path.join(current_dir, '..', 'assets')
         return os.path.abspath(assets_path)
     
     @staticmethod
@@ -222,19 +222,92 @@ def create_menu_button(callback=None):
 
 def create_search_button(callback=None):
     """
-    Create a search button with icon.
+    Create a search button with search icon and "Search" text.
     
     Args:
         callback (callable): Optional click callback
         
     Returns:
-        QPushButton: Configured search button
+        QPushButton: Configured search button with icon and text
     """
-    return IconLoader.create_icon_button(
-        'search.png',
-        size=(20, 20),
-        button_size=(32, 32),
-        flat=False,
-        tooltip="Search",
-        callback=callback
-    )
+    button = QPushButton(" Search")
+    
+    # Load and set icon
+    pixmap = IconLoader.load_icon('search.png', size=(20, 20))
+    if pixmap:
+        button.setIcon(QIcon(pixmap))
+        button.setIconSize(QSize(20, 20))
+    else:
+        # Fallback: use search character
+        button.setText("🔍 Search")
+    
+    button.setToolTip("Search")
+    
+    if callback:
+        button.clicked.connect(callback)
+    
+    return button
+
+
+def create_back_button(callback=None):
+    """
+    Create a back button with left arrow icon and "Back" text.
+    
+    Args:
+        callback (callable): Optional click callback
+        
+    Returns:
+        QPushButton: Configured back button with icon and text
+    """
+    button = QPushButton(" Back")
+    
+    # Load and set icon
+    pixmap = IconLoader.load_icon('left.png', size=(20, 20))
+    if pixmap:
+        button.setIcon(QIcon(pixmap))
+        button.setIconSize(QSize(20, 20))
+    else:
+        # Fallback: use arrow character
+        button.setText("← Back")
+    
+    button.setToolTip("Go back to previous view")
+    
+    if callback:
+        button.clicked.connect(callback)
+    
+    return button
+
+
+def create_floating_add_button(callback=None):
+    """
+    Create a floating action button (FAB) with add icon for bottom-right corner.
+    
+    This creates a circular button with the add.png icon that can be positioned
+    in the bottom-right corner of a view for quick access to add file functionality.
+    
+    Args:
+        callback (callable): Optional click callback
+        
+    Returns:
+        QPushButton: Configured floating action button
+    """
+    button = QPushButton()
+    
+    # Load and set icon
+    pixmap = IconLoader.load_icon('add.png', size=(32, 32))
+    if pixmap:
+        button.setIcon(QIcon(pixmap))
+        button.setIconSize(QSize(32, 32))
+    else:
+        # Fallback: use plus character
+        button.setText("+")
+        button.setStyleSheet("font-size: 24px; font-weight: bold;")
+    
+    # Style as circular floating action button
+    button.setFixedSize(56, 56)
+    button.setToolTip("Add File")
+    
+    if callback:
+        button.clicked.connect(callback)
+    
+    return button

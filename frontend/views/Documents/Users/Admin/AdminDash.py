@@ -35,9 +35,20 @@ class AdminDash(QWidget):
         
         self.controller = DocumentController(username, roles, primary_role, token)
 
+        # Track collection widgets for efficient updates
+        self.collection_cards = {}  # {'collection_name': QFrame widget}
+        self.collections_layout = None  # Reference to the layout
+        
+        # Track file data for efficient updates
+        self.file_data_cache = {}  # {'filename': {'time': ..., 'extension': ..., 'row_index': ...}}
+
         self.stack = QStackedWidget()
 
         self.dashboard_widget = QWidget()
+        
+        # Auto-cleanup old recycle bin files on startup
+        self.auto_cleanup_recycle_bin()
+        
         self.init_ui()
 
         self.stack.addWidget(self.dashboard_widget)
@@ -64,7 +75,7 @@ class AdminDash(QWidget):
         # Changed from QLabel to QLineEdit for text input
         search_bar = QLineEdit()
         search_button = create_search_button(callback=lambda: print("Search button clicked"))
-        search_bar.setPlaceholderText("Search Organization...")
+        search_bar.setPlaceholderText("Search collections or files...")
         search_bar.setMinimumWidth(200)
         
         header_layout.addWidget(menu_btn)
@@ -97,18 +108,19 @@ class AdminDash(QWidget):
         collections_scroll.setFixedHeight(130)
 
         collections_container = QWidget()
-        collections_layout = QHBoxLayout()
-        collections_layout.setSpacing(25)
+        self.collections_layout = QHBoxLayout()  # Store as instance variable
+        self.collections_layout.setSpacing(25)
         
-        # Load collections using controller
+        # Load collections using controller and track them
         collections_data = self.controller.get_collections()
         for collection_data in collections_data:
             collection = self.create_collection_card(collection_data['name'], collection_data.get('icon', 'folder.png'))
             collection.mousePressEvent = self.make_collection_click_handler(collection_data['name'])
-            collections_layout.addWidget(collection)
+            self.collection_cards[collection_data['name']] = collection  # Track widget
+            self.collections_layout.addWidget(collection)
         
-        collections_layout.addStretch()
-        collections_container.setLayout(collections_layout)
+        self.collections_layout.addStretch()
+        collections_container.setLayout(self.collections_layout)
         
         # Set the container as the scroll area's widget
         collections_scroll.setWidget(collections_container)
@@ -122,9 +134,14 @@ class AdminDash(QWidget):
         files_frame.setFrameShape(QFrame.Shape.Box)
         files_layout = QVBoxLayout()
         
-        # Files header
-        files_title = QLabel("Uploaded Files")
-        files_layout.addWidget(files_title)
+        # Files header - now a clickable button
+        files_header_layout = QHBoxLayout()
+        files_title = QPushButton("Uploaded Files")
+        files_title.setStyleSheet("text-align: left; font-weight: bold;")
+        files_title.clicked.connect(self.handle_view_uploaded_files)
+        files_header_layout.addWidget(files_title)
+        files_header_layout.addStretch()
+        files_layout.addLayout(files_header_layout)
 
         # Create a table view and model for files
         self.files_table = QTableView()
@@ -137,12 +154,22 @@ class AdminDash(QWidget):
         self.files_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.files_table.clicked.connect(self.handle_file_row_clicked)
         
+        # Connect model signals for automatic cache consistency
+        self.files_model.rowsRemoved.connect(self._on_rows_removed)
+        self.files_model.dataChanged.connect(self._on_data_changed)
+        
         # Load file data using controller
         files_data = self.controller.get_files()
 
-        # Populate
-        for file_data in files_data:
+        # Populate and track files
+        for idx, file_data in enumerate(files_data):
             self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
+            # Track file data in cache
+            self.file_data_cache[file_data['filename']] = {
+                'time': file_data['time'],
+                'extension': file_data['extension'],
+                'row_index': idx
+            }
         files_layout.addWidget(self.files_table)
         
         # New button at bottom right
@@ -295,55 +322,232 @@ class AdminDash(QWidget):
         dialog.exec()
     
     def on_collection_created(self, collection_data):
-        """Handle collection created event"""
+        """Handle collection created event - incremental update"""
         print(f"Collection created: {collection_data}")
-        # Refresh the collections display
-        self.refresh_collections()
+        
+        collection_name = collection_data.get('name')
+        if not collection_name:
+            # Fallback to full refresh if name not provided
+            self.refresh_collections()
+            return
+        
+        # Check if collection already exists (avoid duplicates)
+        if collection_name in self.collection_cards:
+            print(f"Collection '{collection_name}' already exists, skipping.")
+            return
+        
+        # Add single collection instead of full refresh
+        card = self.create_collection_card(
+            collection_name, 
+            collection_data.get('icon', 'folder.png')
+        )
+        card.mousePressEvent = self.make_collection_click_handler(collection_name)
+        self.collection_cards[collection_name] = card
+        
+        # Insert before the stretch (which is at the last position)
+        insert_position = self.collections_layout.count() - 1
+        self.collections_layout.insertWidget(insert_position, card)
+        print(f"Added new collection to UI: {collection_name}")
     
     def on_file_uploaded(self, file_data):
-        """Handle file uploaded event"""
+        """Handle file uploaded event - incremental update"""
         print(f"File uploaded: {file_data}")
-        # Refresh the files table
-        self.refresh_files_table()
+        
+        filename = file_data.get('filename')
+        if not filename:
+            # Fallback to full refresh if filename not provided
+            self.refresh_files_table()
+            return
+        
+        # Check if file already exists
+        if filename in self.file_data_cache:
+            # Update existing file data
+            row_idx = self.file_data_cache[filename]['row_index']
+            self.files_model.item(row_idx, 0).setText(file_data.get('filename', filename))
+            self.files_model.item(row_idx, 1).setText(file_data.get('time', ''))
+            self.files_model.item(row_idx, 2).setText(file_data.get('extension', ''))
+            
+            # Update cache
+            self.file_data_cache[filename]['time'] = file_data.get('time', '')
+            self.file_data_cache[filename]['extension'] = file_data.get('extension', '')
+            print(f"Updated existing file in UI: {filename}")
+        else:
+            # Add new file
+            self.add_file_to_table(
+                file_data.get('filename', ''),
+                file_data.get('time', ''),
+                file_data.get('extension', '')
+            )
+            
+            # Add to cache
+            self.file_data_cache[filename] = {
+                'time': file_data.get('time', ''),
+                'extension': file_data.get('extension', ''),
+                'row_index': self.files_model.rowCount() - 1
+            }
+            print(f"Added new file to UI: {filename}")
     
     def refresh_collections(self):
-        """Reload and refresh the collections grid"""
-        # Find the collections scroll area widget
-        collections_scroll = self.dashboard_widget.findChild(QScrollArea)
-        if collections_scroll:
-            # Get the container widget
-            container = collections_scroll.widget()
-            if container:
-                # Clear existing layout
-                layout = container.layout()
-                if layout:
-                    while layout.count():
-                        item = layout.takeAt(0)
-                        if item.widget():
-                            item.widget().deleteLater()
-                    
-                    # Reload collections using controller
-                    collections_data = self.controller.get_collections()
-                    for collection_data in collections_data:
-                        collection = self.create_collection_card(collection_data['name'], collection_data.get('icon', 'folder.png'))
-                        collection.mousePressEvent = self.make_collection_click_handler(collection_data['name'])
-                        layout.addWidget(collection)
-                    
-                    layout.addStretch()
+        """Efficiently refresh the collections grid with incremental updates"""
+        if not self.collections_layout:
+            return
+        
+        # Get fresh data from controller
+        collections_data = self.controller.get_collections()
+        fresh_collection_names = {col['name'] for col in collections_data}
+        current_collection_names = set(self.collection_cards.keys())
+        
+        # Identify changes
+        removed_collections = current_collection_names - fresh_collection_names
+        new_collections = [col for col in collections_data if col['name'] not in current_collection_names]
+        
+        # Remove deleted collections
+        for removed_name in removed_collections:
+            widget = self.collection_cards.pop(removed_name)
+            self.collections_layout.removeWidget(widget)
+            widget.deleteLater()
+            print(f"Removed collection: {removed_name}")
+        
+        # Add new collections (insert before the stretch item)
+        for new_collection_data in new_collections:
+            card = self.create_collection_card(
+                new_collection_data['name'], 
+                new_collection_data.get('icon', 'folder.png')
+            )
+            card.mousePressEvent = self.make_collection_click_handler(new_collection_data['name'])
+            self.collection_cards[new_collection_data['name']] = card
+            
+            # Insert before the stretch (which is at the last position)
+            insert_position = self.collections_layout.count() - 1
+            self.collections_layout.insertWidget(insert_position, card)
+            print(f"Added collection: {new_collection_data['name']}")
     
     def refresh_files_table(self):
-        """Reload and refresh the uploaded files table"""
-        # Clear existing rows
-        self.files_model.removeRows(0, self.files_model.rowCount())
-        
-        # Reload files using controller
+        """Efficiently refresh the uploaded files table with incremental updates"""
+        # Get fresh data from controller
         files_data = self.controller.get_files()
-        for file_data in files_data:
-            self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
+        fresh_files = {f['filename']: f for f in files_data}
+        
+        current_filenames = set(self.file_data_cache.keys())
+        fresh_filenames = set(fresh_files.keys())
+        
+        # Identify changes
+        removed_files = current_filenames - fresh_filenames
+        new_files = fresh_filenames - current_filenames
+        existing_files = current_filenames & fresh_filenames
+        
+        # Check for modified files (data changed but file still exists)
+        modified_files = set()
+        for filename in existing_files:
+            cached = self.file_data_cache[filename]
+            fresh = fresh_files[filename]
+            if cached['time'] != fresh['time'] or cached['extension'] != fresh['extension']:
+                modified_files.add(filename)
+        
+        # Remove deleted files (sort by row index descending to avoid index shifting issues)
+        for filename in sorted(removed_files, 
+                              key=lambda f: self.file_data_cache[f]['row_index'], 
+                              reverse=True):
+            row_idx = self.file_data_cache[filename]['row_index']
+            self.files_model.removeRow(row_idx)
+            del self.file_data_cache[filename]
+            print(f"Removed file: {filename}")
+        
+        # Update modified files
+        for filename in modified_files:
+            row_idx = self.file_data_cache[filename]['row_index']
+            fresh = fresh_files[filename]
+            
+            self.files_model.item(row_idx, 0).setText(fresh['filename'])
+            self.files_model.item(row_idx, 1).setText(fresh['time'])
+            self.files_model.item(row_idx, 2).setText(fresh['extension'])
+            
+            # Update cache
+            self.file_data_cache[filename]['time'] = fresh['time']
+            self.file_data_cache[filename]['extension'] = fresh['extension']
+            print(f"Updated file: {filename}")
+        
+        # Add new files
+        for filename in new_files:
+            fresh = fresh_files[filename]
+            self.add_file_to_table(fresh['filename'], fresh['time'], fresh['extension'])
+            
+            # Add to cache with current row index
+            self.file_data_cache[filename] = {
+                'time': fresh['time'],
+                'extension': fresh['extension'],
+                'row_index': self.files_model.rowCount() - 1
+            }
+            print(f"Added file: {filename}")
+        
+        # Rebuild row indices after all changes (removals shift indices)
+        if removed_files:
+            self._rebuild_file_indices()
     
     def handle_manage_deleted_files(self):
         print("Manage Deleted Files clicked")
         from ...Shared.deleted_files_view import DeletedFileView
         deleted_view = DeletedFileView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
+        deleted_view.file_restored.connect(self.on_file_restored)
         self.stack.addWidget(deleted_view)
         self.stack.setCurrentWidget(deleted_view)
+    
+    def handle_view_uploaded_files(self):
+        """Open the uploaded files view"""
+        print("View Uploaded Files clicked")
+        from ...Shared.uploaded_files_view import UploadedFilesView
+        uploaded_view = UploadedFilesView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
+        uploaded_view.file_deleted.connect(self.on_file_deleted)
+        uploaded_view.file_uploaded.connect(self.on_file_uploaded)
+        self.stack.addWidget(uploaded_view)
+        self.stack.setCurrentWidget(uploaded_view)
+    
+    def on_file_deleted(self, file_data):
+        """Handle file deleted event - refresh the files table"""
+        print(f"File deleted: {file_data}")
+        self.refresh_files_table()
+    
+    def on_file_restored(self, file_data):
+        """Handle file restored event - refresh the files table"""
+        print(f"File restored: {file_data}")
+        self.refresh_files_table()
+    
+    def auto_cleanup_recycle_bin(self):
+        """Automatically cleanup old files from recycle bin on startup"""
+        try:
+            success, message, count = self.controller.cleanup_old_recycle_bin_files(days=15)
+            if success and count > 0:
+                print(f"Auto-cleanup: {message}")
+            elif not success:
+                print(f"Auto-cleanup failed: {message}")
+        except Exception as e:
+            print(f"Error during auto-cleanup: {str(e)}")
+    
+    def _rebuild_file_indices(self):
+        """
+        Rebuild row indices in file_data_cache after removals.
+        This ensures cache indices match actual model row positions.
+        """
+        # Iterate through model rows and update cache with correct indices
+        for row_idx in range(self.files_model.rowCount()):
+            filename = self.files_model.item(row_idx, 0).text()
+            if filename in self.file_data_cache:
+                self.file_data_cache[filename]['row_index'] = row_idx
+    
+    def _on_rows_removed(self, parent, first, last):
+        """
+        Auto-update cache when rows are removed from model.
+        Connected to files_model.rowsRemoved signal.
+        """
+        self._rebuild_file_indices()
+    
+    def _on_data_changed(self, topLeft, bottomRight):
+        """
+        Auto-sync cache when data changes in model.
+        Connected to files_model.dataChanged signal.
+        """
+        for row in range(topLeft.row(), bottomRight.row() + 1):
+            filename = self.files_model.item(row, 0).text()
+            if filename in self.file_data_cache:
+                self.file_data_cache[filename]['time'] = self.files_model.item(row, 1).text()
+                self.file_data_cache[filename]['extension'] = self.files_model.item(row, 2).text()
