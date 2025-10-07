@@ -67,10 +67,6 @@ class AdminDash(QWidget):
         menu_btn = create_menu_button(callback=lambda: print("Menu button clicked"))
         
         title = QLabel("Documents")
-        add_collection_btn = QPushButton("Add Collection")
-        add_collection_btn.clicked.connect(self.handle_add_collection)
-        delete_btn = QPushButton("Manage Deleted Files")
-        delete_btn.clicked.connect(self.handle_manage_deleted_files)
             
         # Changed from QLabel to QLineEdit for text input
         search_bar = QLineEdit()
@@ -81,8 +77,6 @@ class AdminDash(QWidget):
         header_layout.addWidget(menu_btn)
         header_layout.addWidget(title)
         header_layout.addStretch()
-        header_layout.addWidget(add_collection_btn)
-        header_layout.addWidget(delete_btn)
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
         
@@ -91,11 +85,14 @@ class AdminDash(QWidget):
         # ========== COLLECTIONS HEADER ==========
         collections_header = QHBoxLayout()
         collections_label = QLabel("Collections")
+        add_collection_btn = QPushButton("Add Collection")
+        add_collection_btn.clicked.connect(self.handle_add_collection)
         upload_link = QPushButton("File Upload Requests")
         upload_link.clicked.connect(lambda: print("File Upload Requests clicked"))
         
         collections_header.addWidget(collections_label)
         collections_header.addStretch()
+        collections_header.addWidget(add_collection_btn)
         collections_header.addWidget(upload_link)
         
         main_layout.addLayout(collections_header)
@@ -144,7 +141,10 @@ class AdminDash(QWidget):
         files_title = QPushButton("Uploaded Files")
         files_title.setStyleSheet("text-align: left; font-weight: bold;")
         files_title.clicked.connect(self.handle_view_uploaded_files)
+        delete_btn = QPushButton("Manage Deleted Files")
+        delete_btn.clicked.connect(self.handle_manage_deleted_files)
         files_header_layout.addWidget(files_title)
+        files_header_layout.addWidget(delete_btn)
         files_header_layout.addStretch()
         files_layout.addLayout(files_header_layout)
 
