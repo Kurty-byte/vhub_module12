@@ -129,10 +129,18 @@ class AddCollectionDialog(QDialog):
         
         # Import service here to avoid circular imports
         from ..services.document_crud_service import DocumentCRUDService
+
+        username = getattr(self.parent(), 'username', 'admin')
         
         # Create the collection
         crud_service = DocumentCRUDService()
-        result = crud_service.create_collection(collection_name, icon="folder.png")
+        # result = crud_service.create_collection(collection_name, icon="folder.png")
+        result = crud_service.create_collection(
+            collection_name,
+            icon="folder.png",
+            created_by=username,
+            description=description
+        )
         
         if result.get("success"):
             # Emit signal with collection data

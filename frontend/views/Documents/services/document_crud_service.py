@@ -10,6 +10,7 @@ import os
 from datetime import datetime
 
 
+
 class DocumentCRUDService:
     """Service for managing document and collection data"""
     
@@ -23,7 +24,7 @@ class DocumentCRUDService:
         self.files_file = os.path.join(self.mock_dir, "files_data.json")
     
     def _load_json(self, filepath):
-        """Load JSON data from file with robust error handling"""
+        """Load JSON data from file with error handling"""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read().strip()
@@ -67,7 +68,7 @@ class DocumentCRUDService:
     
     # ========== COLLECTION OPERATIONS ==========
     
-    def create_collection(self, name, icon="folder.png"):
+    def create_collection(self, name, icon="folder.png", created_by="system", description=""):
         """
         Create a new collection.
         
@@ -89,7 +90,10 @@ class DocumentCRUDService:
             "id": new_id,
             "name": name,
             "icon": icon,
-            "files": []
+            "description": description,
+            "files": [],
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "created_by": created_by
         }
         
         collections.append(new_collection)

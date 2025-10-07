@@ -2,7 +2,6 @@
 Document Controller
 
 Handles all business logic for document management operations.
-Role-agnostic controller that can be used by any user dashboard.
 """
 
 import json
