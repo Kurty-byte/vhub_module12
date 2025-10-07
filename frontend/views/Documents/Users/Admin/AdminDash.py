@@ -6,6 +6,8 @@ from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem, QPainter, QCol
 from PyQt6.QtCore import Qt, QRect
 from ...controller.document_controller import DocumentController
 from ...utils.icon_utils import create_menu_button, create_search_button, IconLoader
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+from PyQt6.QtGui import QColor
 
 from .DonutWidget import DonutChartWidget
 
@@ -59,26 +61,33 @@ class AdminDash(QWidget):
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.stack)
         self.setLayout(main_layout)
+        
         # self.refresh_storage_chart() #for testing only
 
         
 
     def init_ui(self):
+        
         main_layout = QVBoxLayout()
-
         # ========== HEADER SECTION ==========
         header_layout = QHBoxLayout()
+        
+        
         
         # Menu button with hamburger icon - using utility
         menu_btn = create_menu_button(callback=lambda: print("Menu button clicked"))
         
         title = QLabel("Documents")
+        title.setStyleSheet("font-size: 24px; color: #084924; font-family: Poppins; font-weight:bold")
             
         # Changed from QLabel to QLineEdit for text input
         search_bar = QLineEdit()
         search_button = create_search_button(callback=lambda: print("Search button clicked"))
         search_bar.setPlaceholderText("Search collections or files...")
-        search_bar.setMinimumWidth(200)
+        search_bar.setMinimumWidth(300)
+        search_bar.setStyleSheet("border-radius: 10px; padding: 5px; border: 2px solid #084924;")
+        search_button.setMinimumWidth(55)
+        search_button.setStyleSheet("border-radius: 10px; padding: 8px;")
         
         header_layout.addWidget(menu_btn)
         header_layout.addWidget(title)
@@ -86,36 +95,77 @@ class AdminDash(QWidget):
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
         
+        
         main_layout.addLayout(header_layout)
+        main_layout.addSpacing(25)  # Adjust spacing as desired (10–20 looks good)
 
-        # ========== COLLECTIONS HEADER ==========
-        collections_header = QHBoxLayout()
-        collections_label = QLabel("Collections")
-        add_collection_btn = QPushButton("Add Collection")
-        add_collection_btn.clicked.connect(self.handle_add_collection)
-        delete_collection_btn = QPushButton("Delete Collection")
-        delete_collection_btn.clicked.connect(self.handle_delete_collection)
-        upload_link = QPushButton("File Upload Requests")
-        upload_link.clicked.connect(lambda: print("File Upload Requests clicked"))
-        
-        collections_header.addWidget(collections_label)
-        collections_header.addStretch()
-        collections_header.addWidget(add_collection_btn)
-        collections_header.addWidget(delete_collection_btn)
-        collections_header.addWidget(upload_link)
-        
-        main_layout.addLayout(collections_header)
 
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(0, 0, 0, 60))  # semi-transparent black
         # ========== COLLECTIONS GRID ==========
         collections_scroll = QScrollArea()
+        
         collections_scroll.setWidgetResizable(True)
         collections_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         collections_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        collections_scroll.setFixedHeight(130)
-
+        collections_scroll.setFixedHeight(200)  # Increased height to accommodate header and buttons
+        collections_scroll.setStyleSheet("QScrollArea { border: none; }")
+        collections_scroll.setGraphicsEffect(shadow)
+        
+        
         collections_container = QWidget()
+        # collections_container.setStyleSheet("QWidget { background-color: white; }")
+        
+        
+        container_layout = QVBoxLayout()
+        container_layout.setContentsMargins(20, 15, 20, 15)  # Add padding around the edges
+        
+        # Add header with buttons and underline
+        header_widget = QWidget()
+        header_widget.setStyleSheet("""
+            QWidget {
+                border-bottom: 1px solid black;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+            }
+        """)
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Collections label
+        collections_label = QLabel("Collections")
+        collections_label.setStyleSheet("font-family: Poppins; font-size: 20px; padding: 5px;")
+        collections_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)  # Align vertically with buttons
+        
+        # Action buttons
+        add_collection_btn = QPushButton("Add Collection")
+        add_collection_btn.clicked.connect(self.handle_add_collection)
+        add_collection_btn.setStyleSheet("border:none; font-family: Poppins; padding: 5px; font-weight: bold; text-decoration: underline;")
+        
+        delete_collection_btn = QPushButton("Delete Collection")
+        delete_collection_btn.clicked.connect(self.handle_delete_collection)
+        delete_collection_btn.setStyleSheet(" border:none;font-family: Poppins; padding: 5px; font-weight: bold; text-decoration: underline;")
+        
+        upload_link = QPushButton("File Upload Requests")
+        upload_link.clicked.connect(lambda: print("File Upload Requests clicked"))
+        upload_link.setStyleSheet(" border:none;font-family: Poppins; padding: 5px; font-weight: bold; text-decoration: underline;")
+        
+        header_layout.addWidget(collections_label)
+        header_layout.addStretch()
+        header_layout.addWidget(add_collection_btn)
+        header_layout.addWidget(delete_collection_btn)
+        header_layout.addWidget(upload_link)
+        header_widget.setLayout(header_layout)
+        
+        container_layout.addWidget(header_widget)
+        
+        
+        # Collections grid
         self.collections_layout = QHBoxLayout()  # Store as instance variable
         self.collections_layout.setSpacing(25)
+        self.collections_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins from the collections layout
         
         # Load collections using controller and track them
         collections_data = self.controller.get_collections()
@@ -123,7 +173,7 @@ class AdminDash(QWidget):
             file_count = len(collection_data.get('files', []))  # Count files in collection
             collection = self.create_collection_card(
                 collection_data['name'], 
-                collection_data.get('icon', 'folder.png'),
+                collection_data.get('icon', 'folder1.png'),
                 file_count=file_count
             )
             # Set up single click and double click handlers
@@ -133,7 +183,10 @@ class AdminDash(QWidget):
             self.collections_layout.addWidget(collection)
         
         self.collections_layout.addStretch()
-        collections_container.setLayout(self.collections_layout)
+        
+        # Add the collections layout to the container
+        container_layout.addLayout(self.collections_layout)
+        collections_container.setLayout(container_layout)
         
         # Set the container as the scroll area's widget
         collections_scroll.setWidget(collections_container)
@@ -231,7 +284,7 @@ class AdminDash(QWidget):
         
         used_row = QHBoxLayout()
         used_color = QLabel("●") 
-        used_color.setStyleSheet("color: #084924; font-size: 16px; font-weight: bold;")  # for GREEN color
+        used_color.setStyleSheet("color: #084924; font-size: 16px; font-weight: bold; font-family: Poppins;")  # for GREEN color
         used_label = QLabel("Used Storage")
         used_size = QLabel(f"Actual Size: {storage_data['used_size_gb']} GB")
         used_row.addWidget(used_color)
@@ -241,7 +294,7 @@ class AdminDash(QWidget):
 
         free_row = QHBoxLayout()
         free_color = QLabel("●")
-        free_color.setStyleSheet("color: #E0E0E0; font-size: 16px; font-weight: bold;")  # this is ofr LIGHT GRAY colow
+        free_color.setStyleSheet("color: #E0E0E0; font-size: 16px; font-weight: bold; font-family: Poppins;")  # this is ofr LIGHT GRAY colow
         free_label = QLabel("Free Space")
         free_size = QLabel(f"Unused Size: {storage_data['free_size_gb']} GB")
         free_row.addWidget(free_color)
@@ -263,7 +316,7 @@ class AdminDash(QWidget):
         # Set the main layout for this widget
         self.dashboard_widget.setLayout(main_layout)
 
-    def create_collection_card(self, name, icon_filename="folder.png", file_count=0):
+    def create_collection_card(self, name, icon_filename="folder1.png", file_count=0):
         """
         Creates a single collection card widget
         
@@ -281,22 +334,59 @@ class AdminDash(QWidget):
         card.setFixedSize(90, 90)
         card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
+        # Set green background for collections loaded from database
+        card.setStyleSheet("""
+            QFrame#collection_card {
+                background-color: #084924;
+                border: 1px solid #084924;
+                border-radius: 8px;
+            }
+            QFrame#collection_card:hover {
+                background-color: #064018;
+                border: 2px solid #084924;
+            }
+            QFrame#collection_card:pressed {
+                background-color: #084924;
+                border: 2px solid #0078d4;
+            }
+        """)
+        
         # Vertical layout: icon stacked on top of label
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(2)  # Reduce spacing between elements
         
-        # Load icon using IconLoader
+        # Load icon using IconLoader with yellow color filter
         icon = IconLoader.create_icon_label(icon_filename, size=(32, 32), alignment=Qt.AlignmentFlag.AlignCenter)
+        # Apply yellow color to the icon
+        icon.setStyleSheet("""
+            QLabel {
+                background-color: transparent;
+                color: #FDC601;
+            }
+        """)
         
         label = QLabel(name)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setWordWrap(True)  # Allow text wrapping if name is long
+        label.setStyleSheet("""
+            QLabel {
+                background-color: transparent;
+                color: white;
+                font-weight: bold;
+            }
+        """)
         
         # File count indicator
         count_label = QLabel(f"Files: {file_count}")
         count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        count_label.setStyleSheet("color: gray; font-size: 10px;")
+        count_label.setStyleSheet("""
+            QLabel {
+                background-color: transparent;
+                color: #CCCCCC;
+                font-size: 10px;
+            }
+        """)
         count_label.setObjectName("file_count_label")  # Give it a unique name to find it later
         
         layout.addWidget(icon)
@@ -400,12 +490,32 @@ class AdminDash(QWidget):
         """Handle single click on collection - highlight/select it"""
         def handler(event):
             print(f"Collection selected: {name}")
-            # Clear previous selection
+            # Clear previous selection - restore original green styling
             if self.selected_collection and self.selected_collection != card_widget:
-                self.selected_collection.setStyleSheet("QFrame#collection_card { border: 1px solid #cccccc; }")  # Reset to default subtle border
+                self.selected_collection.setStyleSheet("""
+                    QFrame#collection_card {
+                        background-color: #084924;
+                        border: 1px solid #084924;
+                        border-radius: 8px;
+                    }
+                    QFrame#collection_card:hover {
+                        background-color: #064018;
+                        border: 2px solid #084924;
+                    }
+                """)
             
-            # Highlight current selection with subtle border - only targets the outer card frame
-            card_widget.setStyleSheet("QFrame#collection_card { border: 2px solid #0078d4; }")
+            # Highlight current selection with blue border but keep green background
+            card_widget.setStyleSheet("""
+                QFrame#collection_card {
+                    background-color: #084924;
+                    border: 2px solid #0078d4;
+                    border-radius: 8px;
+                }
+                QFrame#collection_card:hover {
+                    background-color: #064018;
+                    border: 2px solid #0078d4;
+                }
+            """)
             self.selected_collection = card_widget
         return handler
     
@@ -522,7 +632,7 @@ class AdminDash(QWidget):
         file_count = len(collection_data.get('files', []))
         card = self.create_collection_card(
             collection_name, 
-            collection_data.get('icon', 'folder.png'),
+            collection_data.get('icon', 'folder1.png'),
             file_count=file_count
         )
         # Set up single click and double click handlers
@@ -624,7 +734,7 @@ class AdminDash(QWidget):
         for new_collection_data in new_collections:
             card = self.create_collection_card(
                 new_collection_data['name'], 
-                new_collection_data.get('icon', 'folder.png')
+                new_collection_data.get('icon', 'folder1.png')
             )
             card.mousePressEvent = self.make_collection_click_handler(new_collection_data['name'])
             self.collection_cards[new_collection_data['name']] = card
