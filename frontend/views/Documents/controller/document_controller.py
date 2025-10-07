@@ -330,7 +330,7 @@ class DocumentController:
             return False, f"Error permanently deleting file: {str(e)}"
     
     def upload_file(self, source_path: str, custom_name: str = None, 
-                   category: str = None, description: str = None, 
+                   category: str = None, collection: str = None, description: str = None, 
                    force_override: bool = False) -> Tuple[bool, str, Optional[Dict]]:
         """
         Upload a new file with duplicate handling.
@@ -339,6 +339,7 @@ class DocumentController:
             source_path (str): Path to the source file
             custom_name (str, optional): Custom name for the file
             category (str, optional): Category for the file
+            collection (str, optional): Collection name the file belongs to
             description (str, optional): File description
             force_override (bool): If True, override existing file with same name
             
@@ -380,6 +381,7 @@ class DocumentController:
                 'extension': result['extension'],
                 'file_path': result['file_path'],
                 'category': category or 'None',
+                'collection': collection or category or 'None',  # Add collection field with fallback
                 'uploaded_date': datetime.now().strftime("%m/%d/%Y"),
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'uploader': self.username,
@@ -597,7 +599,8 @@ class DocumentController:
     
     def delete_collection(self, collection_name: str) -> Tuple[bool, str]:
         """
-        Delete a collection (and optionally its files).
+        Delete a collection and update files' collection reference to 'None'.
+        Files are not deleted, only their collection association is removed.
         
         Args:
             collection_name (str): Name of the collection to delete
@@ -626,7 +629,33 @@ class DocumentController:
                 with open(collections_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
                 
-                return True, f"Collection '{collection_name}' deleted successfully"
+                # Update files' collection field to 'None' if they belonged to this collection
+                files_path = get_mock_data_path('files_data.json')
+                try:
+                    with open(files_path, 'r', encoding='utf-8') as f:
+                        files_data = json.load(f)
+                    
+                    uploaded_files = files_data.get('uploaded_files', [])
+                    updated_count = 0
+                    
+                    for file_info in uploaded_files:
+                        if file_info.get('collection', '').lower() == collection_name.lower():
+                            file_info['collection'] = 'None'
+                            updated_count += 1
+                    
+                    files_data['uploaded_files'] = uploaded_files
+                    
+                    with open(files_path, 'w', encoding='utf-8') as f:
+                        json.dump(files_data, f, indent=2)
+                    
+                    msg = f"Collection '{collection_name}' deleted successfully"
+                    if updated_count > 0:
+                        msg += f". {updated_count} file(s) moved to uncategorized."
+                    
+                    return True, msg
+                except Exception as e:
+                    # Collection deleted but file update failed
+                    return True, f"Collection '{collection_name}' deleted, but file update encountered an issue: {str(e)}"
             else:
                 return False, f"Collection '{collection_name}' not found"
                 
@@ -990,3 +1019,43 @@ class DocumentController:
             return True
         
         return file_data.get('uploader') == self.username
+    
+    def update_file_collection(self, filename: str, collection_name: str = None, timestamp: str = None) -> Tuple[bool, str]:
+        """
+        Update the collection field for a specific file.
+        
+        Args:
+            filename (str): Name of the file
+            collection_name (str, optional): New collection name (None to remove from collection)
+            timestamp (str, optional): File timestamp for identification
+            
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        try:
+            files_path = get_mock_data_path('files_data.json')
+            with open(files_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            uploaded_files = data.get('uploaded_files', [])
+            file_found = False
+            
+            for file_data in uploaded_files:
+                if file_data['filename'] == filename:
+                    if timestamp is None or file_data.get('timestamp') == timestamp:
+                        file_data['collection'] = collection_name or 'None'
+                        file_found = True
+                        break
+            
+            if file_found:
+                data['uploaded_files'] = uploaded_files
+                
+                with open(files_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                
+                return True, f"File collection updated successfully"
+            else:
+                return False, f"File '{filename}' not found"
+                
+        except Exception as e:
+            return False, f"Error updating file collection: {str(e)}"

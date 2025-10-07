@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QLineEdit, QTextEdit, QFrame, QMessageBox)
+                             QPushButton, QLineEdit, QTextEdit, QFrame, QMessageBox, QComboBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 import os
@@ -132,6 +132,15 @@ class FileDetailsDialog(QDialog):
         category_row.addWidget(self.category_input)
         details_layout.addLayout(category_row)
         
+        # Collection (editable dropdown)
+        collection_row = QHBoxLayout()
+        collection_row.addWidget(QLabel("Collection"))
+        self.collection_combo = QComboBox()
+        self.collection_combo.setEnabled(False)  # Start as disabled
+        self._load_collections()
+        collection_row.addWidget(self.collection_combo)
+        details_layout.addLayout(collection_row)
+        
         # Additional info for deleted files
         if self.is_deleted:
             deleted_at_row = QHBoxLayout()
@@ -183,6 +192,29 @@ class FileDetailsDialog(QDialog):
         # Track edit mode
         self.is_editing = False
     
+    def _load_collections(self):
+        """Load collections from data and populate dropdown"""
+        from ..Mock.data_loader import get_collections
+        
+        collections = get_collections()
+        
+        # Add "None" option first
+        self.collection_combo.addItem("None (Standalone)", "None")
+        
+        # Get current collection
+        current_collection = self.file_data.get('collection', 'None')
+        
+        # Add all collections
+        selected_index = 0
+        for idx, collection in enumerate(collections, start=1):
+            self.collection_combo.addItem(collection["name"], collection["name"])
+            # Check if this is the current collection
+            if collection["name"] == current_collection:
+                selected_index = idx
+        
+        # Set current selection
+        self.collection_combo.setCurrentIndex(selected_index)
+    
     def _get_icon_for_extension(self, extension):
         """Get appropriate icon filename based on file extension"""
         extension = extension.lower().replace('.', '')
@@ -222,6 +254,7 @@ class FileDetailsDialog(QDialog):
             self.is_editing = True
             self.filename_input.setReadOnly(False)
             self.category_input.setReadOnly(False)
+            self.collection_combo.setEnabled(True)  # Enable collection dropdown
             self.description_text.setReadOnly(False)
             
             # Change button text
@@ -240,6 +273,7 @@ class FileDetailsDialog(QDialog):
         
         new_filename = self.filename_input.text().strip()
         new_category = self.category_input.text().strip()
+        new_collection = self.collection_combo.currentData()  # Get collection from dropdown
         new_description = self.description_text.toPlainText().strip()
         
         # Validate filename
@@ -260,6 +294,26 @@ class FileDetailsDialog(QDialog):
             timestamp=timestamp
         )
         
+        # If file update was successful, also update collection if it changed
+        if success and updated_file_data:
+            old_collection = self.file_data.get('collection', 'None')
+            if new_collection != old_collection:
+                # Update collection field
+                collection_success, collection_message = self.controller.update_file_collection(
+                    filename=updated_file_data.get('filename'),  # Use updated filename
+                    collection_name=new_collection if new_collection != "None" else None,
+                    timestamp=timestamp
+                )
+                
+                if collection_success:
+                    # Update the file_data with new collection
+                    updated_file_data['collection'] = new_collection
+                    message += f"\nCollection updated to '{new_collection}'"
+                else:
+                    QMessageBox.warning(self, "Partial Success", 
+                                      f"File updated but collection update failed:\n{collection_message}")
+        
+        # Continue with existing update logic
         if success and updated_file_data:
             # Update local file_data with ALL fields from controller
             self.file_data.update(updated_file_data)
@@ -298,6 +352,7 @@ class FileDetailsDialog(QDialog):
             self.is_editing = False
             self.filename_input.setReadOnly(True)
             self.category_input.setReadOnly(True)
+            self.collection_combo.setEnabled(False)  # Disable collection dropdown
             self.description_text.setReadOnly(True)
             
             # Change button text back

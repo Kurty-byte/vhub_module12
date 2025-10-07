@@ -88,12 +88,15 @@ class AdminDash(QWidget):
         collections_label = QLabel("Collections")
         add_collection_btn = QPushButton("Add Collection")
         add_collection_btn.clicked.connect(self.handle_add_collection)
+        delete_collection_btn = QPushButton("Delete Collection")
+        delete_collection_btn.clicked.connect(self.handle_delete_collection)
         upload_link = QPushButton("File Upload Requests")
         upload_link.clicked.connect(lambda: print("File Upload Requests clicked"))
         
         collections_header.addWidget(collections_label)
         collections_header.addStretch()
         collections_header.addWidget(add_collection_btn)
+        collections_header.addWidget(delete_collection_btn)
         collections_header.addWidget(upload_link)
         
         main_layout.addLayout(collections_header)
@@ -428,6 +431,58 @@ class AdminDash(QWidget):
         dialog = AddCollectionDialog(self)
         dialog.collection_created.connect(self.on_collection_created)
         dialog.exec()  # Show modal dialog
+    
+    def handle_delete_collection(self):
+        """Delete the currently selected collection"""
+        if not self.selected_collection:
+            QMessageBox.warning(
+                self, 
+                "No Selection", 
+                "Please select a collection first by clicking on it."
+            )
+            return
+        
+        # Find the collection name from the selected widget
+        collection_name = None
+        for name, widget in self.collection_cards.items():
+            if widget == self.selected_collection:
+                collection_name = name
+                break
+        
+        if not collection_name:
+            QMessageBox.warning(self, "Error", "Could not identify the selected collection.")
+            return
+        
+        # Confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            'Confirm Delete Collection',
+            f"Are you sure you want to delete the collection '{collection_name}'?\n\n"
+            f"All files in this collection will be moved to their respective categories.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Delete collection using controller
+            success, message = self.controller.delete_collection(collection_name)
+            
+            if success:
+                QMessageBox.information(self, "Success", message)
+                
+                # Remove the collection card from UI
+                self.collections_layout.removeWidget(self.selected_collection)
+                self.selected_collection.deleteLater()  # Schedule for deletion
+                
+                # Remove from tracking dictionary
+                del self.collection_cards[collection_name]
+                
+                # Clear selection
+                self.selected_collection = None
+                
+                print(f"Collection '{collection_name}' deleted successfully")
+            else:
+                QMessageBox.critical(self, "Error", f"Failed to delete collection: {message}")
     
     def handle_add_file(self):
         """Open the file upload dialog popup"""

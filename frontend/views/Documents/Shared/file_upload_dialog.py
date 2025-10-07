@@ -329,10 +329,16 @@ class FileUploadDialog(QDialog):
                 ""
             )
             
+            # Get collection name from combo box (not ID)
+            collection_name = self.collection_combo.currentText()
+            if collection_name == "None (Standalone)":
+                collection_name = None
+            
             success, message, file_data = controller.upload_file(
                 self.selected_file_path,
                 custom_name=filename,
                 category=category if category != "None" else None,
+                collection=collection_name,  # Pass collection name
                 description=description,
                 force_override=force_override
             )
