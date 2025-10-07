@@ -38,6 +38,7 @@ class AdminDash(QWidget):
         # Track collection widgets for efficient updates
         self.collection_cards = {}  # {'collection_name': QFrame widget}
         self.collections_layout = None  # Reference to the layout
+        self.selected_collection = None  # Track currently selected collection
         
         # Track file data for efficient updates
         self.file_data_cache = {}  # {'filename': {'time': ..., 'extension': ..., 'row_index': ...}}
@@ -117,7 +118,9 @@ class AdminDash(QWidget):
                 collection_data.get('icon', 'folder.png'),
                 file_count=file_count
             )
-            collection.mousePressEvent = self.make_collection_click_handler(collection_data['name'])
+            # Set up single click and double click handlers
+            collection.mousePressEvent = self.make_collection_single_click_handler(collection_data['name'], collection)
+            collection.mouseDoubleClickEvent = self.make_collection_double_click_handler(collection_data['name'])
             self.collection_cards[collection_data['name']] = collection  # Track widget
             self.collections_layout.addWidget(collection)
         
@@ -259,6 +262,7 @@ class AdminDash(QWidget):
             QFrame: A frame containing the collection card UI
         """
         card = QFrame()
+        card.setObjectName("collection_card")  # Set object name for targeted styling
         card.setFrameShape(QFrame.Shape.Box)
         card.setFixedSize(90, 90)
         card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -378,9 +382,23 @@ class AdminDash(QWidget):
             self.stack.setCurrentWidget(deleted_file_view)
         return handler
     
-    def make_collection_click_handler(self, name):
+    def make_collection_single_click_handler(self, name, card_widget):
+        """Handle single click on collection - highlight/select it"""
         def handler(event):
-            print(f"Collection clicked: {name}")
+            print(f"Collection selected: {name}")
+            # Clear previous selection
+            if self.selected_collection and self.selected_collection != card_widget:
+                self.selected_collection.setStyleSheet("QFrame#collection_card { border: 1px solid #cccccc; }")  # Reset to default subtle border
+            
+            # Highlight current selection with subtle border - only targets the outer card frame
+            card_widget.setStyleSheet("QFrame#collection_card { border: 2px solid #0078d4; }")
+            self.selected_collection = card_widget
+        return handler
+    
+    def make_collection_double_click_handler(self, name):
+        """Handle double click on collection - open it"""
+        def handler(event):
+            print(f"Collection opened: {name}")
             from ...Shared.collection_view import CollectionView
             collection_view = CollectionView(
                 self.username,
@@ -398,6 +416,10 @@ class AdminDash(QWidget):
             self.stack.addWidget(collection_view)
             self.stack.setCurrentWidget(collection_view)
         return handler
+    
+    def make_collection_click_handler(self, name):
+        """Deprecated - kept for backward compatibility"""
+        return self.make_collection_double_click_handler(name)
 
     def handle_add_collection(self):
         """Open the add collection dialog popup"""
@@ -437,7 +459,9 @@ class AdminDash(QWidget):
             collection_data.get('icon', 'folder.png'),
             file_count=file_count
         )
-        card.mousePressEvent = self.make_collection_click_handler(collection_name)
+        # Set up single click and double click handlers
+        card.mousePressEvent = self.make_collection_single_click_handler(collection_name, card)
+        card.mouseDoubleClickEvent = self.make_collection_double_click_handler(collection_name)
         self.collection_cards[collection_name] = card
         
         # Insert before the stretch (which is at the last position)
