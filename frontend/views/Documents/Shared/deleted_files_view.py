@@ -180,12 +180,20 @@ class DeletedFileView(QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
+            # Get full file data before restoring (to capture _original_collections)
+            deleted_files = self.controller.get_deleted_files()
+            file_data = None
+            for f in deleted_files:
+                if f['filename'] == filename and (deleted_at is None or f.get('deleted_at') == deleted_at):
+                    file_data = f.copy()  # Make a copy to preserve original data
+                    break
+            
             success, message = self.controller.restore_file(filename, deleted_at)
             
             if success:
                 QMessageBox.information(self, "Success", message)
-                # Emit signal to notify parent
-                self.file_restored.emit({'filename': filename, 'deleted_at': deleted_at})
+                # Emit signal to notify parent with full file data (includes _original_collections)
+                self.file_restored.emit(file_data if file_data else {'filename': filename, 'deleted_at': deleted_at})
                 # Remove file incrementally instead of full reload
                 self._remove_file_from_table(filename, deleted_at)
             else:
@@ -244,8 +252,8 @@ class DeletedFileView(QWidget):
                 
                 if success:
                     success_count += 1
-                    # Emit signal to notify parent
-                    self.file_restored.emit({'filename': filename, 'deleted_at': deleted_at})
+                    # Emit signal to notify parent with full file data (includes _original_collections)
+                    self.file_restored.emit(file_data)
                 else:
                     failed_count += 1
                     error_messages.append(f"- {filename}: {message}")

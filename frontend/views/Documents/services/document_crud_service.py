@@ -66,6 +66,40 @@ class DocumentCRUDService:
             print(f"Error saving JSON to '{filepath}': {e}")
             return False
     
+    # ========== FILE ID MANAGEMENT ==========
+    
+    def _get_next_file_id(self):
+        """
+        Generate the next available file ID.
+        
+        Returns:
+            int: Next available file ID
+        """
+        data = self._load_json(self.files_file)
+        
+        # Check if next_file_id exists in data
+        if 'next_file_id' in data:
+            next_id = data['next_file_id']
+        else:
+            # Initialize based on existing files
+            uploaded_files = data.get('uploaded_files', [])
+            deleted_files = data.get('deleted_files', [])
+            
+            # Find max existing file_id
+            max_id = 0
+            for file_data in uploaded_files + deleted_files:
+                if 'file_id' in file_data:
+                    max_id = max(max_id, file_data['file_id'])
+            
+            next_id = max_id + 1
+        
+        # Increment and save
+        data['next_file_id'] = next_id + 1
+        self._save_json(self.files_file, data)
+        
+        print(f"Generated file_id: {next_id}")
+        return next_id
+    
     # ========== COLLECTION OPERATIONS ==========
     
     def create_collection(self, name, icon="folder.png", created_by="system", description=""):
@@ -157,6 +191,9 @@ class DocumentCRUDService:
         data = self._load_json(self.collections_file)
         collections = data.get("collections", [])
         
+        # Generate unique file ID
+        file_id = self._get_next_file_id()
+        
         # Find the collection
         collection_found = False
         for collection in collections:
@@ -166,6 +203,7 @@ class DocumentCRUDService:
                 # Add file to collection
                 now = datetime.now()
                 new_file = {
+                    "file_id": file_id,  # NEW: Unique file identifier
                     "filename": filename,
                     "time": now.strftime("%I:%M %p").lower(),
                     "extension": extension,
@@ -191,8 +229,13 @@ class DocumentCRUDService:
         # Save updated collections
         data["collections"] = collections
         if self._save_json(self.collections_file, data):
-            # Also add to uploaded files list
-            self._add_to_uploaded_files(filename, file_path, category, extension, uploader, role)
+            # Also add to uploaded files list (using the SAME file_id)
+            self._add_to_uploaded_files(filename, file_path, category, extension, uploader, role, file_id)
+            
+            # Add collection info to the file data
+            new_file['collection_name'] = collection.get('name')
+            new_file['collection_id'] = collection_id
+            
             return {
                 "success": True,
                 "file": new_file
@@ -215,8 +258,12 @@ class DocumentCRUDService:
             uploader (str): Username of the uploader
             role (str): Role of the uploader (can include subroles with '-')
         """
+        # Generate unique file ID
+        file_id = self._get_next_file_id()
+        
         now = datetime.now()
         new_file = {
+            "file_id": file_id,  # NEW: Unique file identifier
             "filename": filename,
             "time": now.strftime("%I:%M %p").lower(),
             "extension": extension,
@@ -230,7 +277,7 @@ class DocumentCRUDService:
             "approval_status": "pending"  # NEW: pending, accepted, rejected
         }
         
-        if self._add_to_uploaded_files(filename, file_path, category, extension, uploader, role):
+        if self._add_to_uploaded_files(filename, file_path, category, extension, uploader, role, file_id):
             return {
                 "success": True,
                 "file": new_file
@@ -241,13 +288,18 @@ class DocumentCRUDService:
                 "error": "Failed to save file"
             }
     
-    def _add_to_uploaded_files(self, filename, file_path, category, extension, uploader, role):
+    def _add_to_uploaded_files(self, filename, file_path, category, extension, uploader, role, file_id=None):
         """Add a file to the uploaded files list"""
         data = self._load_json(self.files_file)
         uploaded_files = data.get("uploaded_files", [])
         
+        # Generate file_id if not provided
+        if file_id is None:
+            file_id = self._get_next_file_id()
+        
         now = datetime.now()
         new_file = {
+            "file_id": file_id,  # NEW: Unique file identifier
             "filename": filename,
             "time": now.strftime("%I:%M %p").lower(),
             "extension": extension,

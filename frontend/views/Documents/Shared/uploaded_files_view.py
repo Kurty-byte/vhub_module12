@@ -181,12 +181,20 @@ class UploadedFilesView(QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
+            # Get full file data before deletion
+            files_data = self.controller.get_files()
+            file_data = None
+            for f in files_data:
+                if f['filename'] == filename:
+                    file_data = f
+                    break
+            
             success, message = self.controller.delete_file(filename)
             
             if success:
                 QMessageBox.information(self, "Success", message)
-                # Emit signal to notify parent
-                self.file_deleted.emit({'filename': filename})
+                # Emit signal to notify parent with full file data (or at least filename)
+                self.file_deleted.emit(file_data if file_data else {'filename': filename})
                 # Refresh the table
                 self.load_uploaded_files()
             else:

@@ -114,7 +114,12 @@ class AdminDash(QWidget):
         # Load collections using controller and track them
         collections_data = self.controller.get_collections()
         for collection_data in collections_data:
-            collection = self.create_collection_card(collection_data['name'], collection_data.get('icon', 'folder.png'))
+            file_count = len(collection_data.get('files', []))  # Count files in collection
+            collection = self.create_collection_card(
+                collection_data['name'], 
+                collection_data.get('icon', 'folder.png'),
+                file_count=file_count
+            )
             collection.mousePressEvent = self.make_collection_click_handler(collection_data['name'])
             self.collection_cards[collection_data['name']] = collection  # Track widget
             self.collections_layout.addWidget(collection)
@@ -241,34 +246,44 @@ class AdminDash(QWidget):
         # Set the main layout for this widget
         self.dashboard_widget.setLayout(main_layout)
 
-    def create_collection_card(self, name, icon_filename="folder.png"):
+    def create_collection_card(self, name, icon_filename="folder.png", file_count=0):
         """
         Creates a single collection card widget
         
         Args:
             name (str): Display name for the collection
             icon_filename (str): Icon filename from Assets folder (default: "folder.png")
+            file_count (int): Number of files in the collection
             
         Returns:
             QFrame: A frame containing the collection card UI
         """
         card = QFrame()
-        card.setFrameShape(QFrame.Shape.Box)  # Add border for visibility
+        card.setFrameShape(QFrame.Shape.Box)
         card.setFixedSize(90, 90)
         card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
         # Vertical layout: icon stacked on top of label
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(2)  # Reduce spacing between elements
         
         # Load icon using IconLoader
         icon = IconLoader.create_icon_label(icon_filename, size=(32, 32), alignment=Qt.AlignmentFlag.AlignCenter)
         
         label = QLabel(name)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setWordWrap(True)  # Allow text wrapping if name is long
+        
+        # File count indicator
+        count_label = QLabel(f"Files: {file_count}")
+        count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        count_label.setStyleSheet("color: gray; font-size: 10px;")
+        count_label.setObjectName("file_count_label")  # Give it a unique name to find it later
         
         layout.addWidget(icon)
         layout.addWidget(label)
+        layout.addWidget(count_label)
         card.setLayout(layout)
         
         return card
@@ -342,6 +357,17 @@ class AdminDash(QWidget):
         print(f"File deleted from dialog: {file_data}")
         # Refresh files table
         self.refresh_files_table()
+        
+        # Update collection file counts
+        print(f"DEBUG: file_data keys from dialog delete: {file_data.keys()}")
+        collection_name = file_data.get('collection_name') or file_data.get('category')
+        if collection_name:
+            print(f"DEBUG: Updating specific collection: {collection_name}")
+            self.update_collection_file_count(collection_name)
+        else:
+            print(f"DEBUG: No collection info, refreshing all collection counts")
+            # If we can't determine which collection, refresh all
+            self.refresh_all_collection_counts()
 
     def deleted_click_handler(self, event):
         def handler(event):
@@ -403,11 +429,13 @@ class AdminDash(QWidget):
         if collection_name in self.collection_cards:
             print(f"Collection '{collection_name}' already exists, skipping.")
             return
-        
+
         # Add single collection instead of full refresh
+        file_count = len(collection_data.get('files', []))
         card = self.create_collection_card(
             collection_name, 
-            collection_data.get('icon', 'folder.png')
+            collection_data.get('icon', 'folder.png'),
+            file_count=file_count
         )
         card.mousePressEvent = self.make_collection_click_handler(collection_name)
         self.collection_cards[collection_name] = card
@@ -468,6 +496,18 @@ class AdminDash(QWidget):
                 'row_index': self.files_model.rowCount() - 1
             }
             print(f"Added new file to UI: {filename}")
+        
+        # Update collection file count if file was added to a collection
+        print(f"DEBUG: file_data keys: {file_data.keys()}")
+        print(f"DEBUG: collection_name = {file_data.get('collection_name')}")
+        print(f"DEBUG: collection_id = {file_data.get('collection_id')}")
+
+        collection_name = file_data.get('collection_name')
+        if collection_name:
+            print(f"DEBUG: Updating count for collection: {collection_name}")
+            self.update_collection_file_count(collection_name)
+        else:
+            print(f"DEBUG: No collection_name found in file_data")
     
     def refresh_collections(self):
         """Efficiently refresh the collections grid with incremental updates"""
@@ -605,14 +645,50 @@ class AdminDash(QWidget):
         self.stack.setCurrentWidget(uploaded_view)
     
     def on_file_deleted(self, file_data):
-        """Handle file deleted event - refresh the files table"""
+        """Handle file deleted event - refresh the files table and update collection count"""
         print(f"File deleted: {file_data}")
         self.refresh_files_table()
+        
+        # Update collection file count if file was deleted from a collection
+        print(f"DEBUG: file_data keys on delete: {file_data.keys()}")
+        print(f"DEBUG: collection_name = {file_data.get('collection_name')}")
+        print(f"DEBUG: category = {file_data.get('category')}")
+        
+        # Try to get collection name from file_data
+        collection_name = file_data.get('collection_name') or file_data.get('category')
+        if collection_name:
+            print(f"DEBUG: Updating count for collection after deletion: {collection_name}")
+            self.update_collection_file_count(collection_name)
+        else:
+            print(f"DEBUG: No collection_name found in deleted file_data, updating all collections")
+            # If we can't determine which collection, refresh all collection counts
+            self.refresh_all_collection_counts()
     
     def on_file_restored(self, file_data):
-        """Handle file restored event - refresh the files table"""
+        """Handle file restored event - refresh the files table and update collection counts"""
         print(f"File restored: {file_data}")
         self.refresh_files_table()
+        
+        # Update collection file counts - file was restored back to its original collections
+        print(f"DEBUG: file_data keys on restore: {file_data.keys()}")
+        print(f"DEBUG: _original_collections = {file_data.get('_original_collections')}")
+        
+        # Check for original collections (stored during deletion)
+        original_collections = file_data.get('_original_collections', [])
+        if original_collections:
+            print(f"DEBUG: Updating counts for restored collections: {original_collections}")
+            for collection_name in original_collections:
+                self.update_collection_file_count(collection_name)
+        else:
+            # Fallback: check for single collection name
+            collection_name = file_data.get('collection_name') or file_data.get('category')
+            if collection_name:
+                print(f"DEBUG: Updating count for single collection: {collection_name}")
+                self.update_collection_file_count(collection_name)
+            else:
+                print(f"DEBUG: No collection info found, refreshing all collection counts")
+                # If we can't determine which collections, refresh all
+                self.refresh_all_collection_counts()
     
     def auto_cleanup_recycle_bin(self):
         """Automatically cleanup old files from recycle bin on startup"""
@@ -687,3 +763,58 @@ class AdminDash(QWidget):
             'rejected': '🔴 Rejected'
         }
         return approval_map.get(approval, '⚪ Unknown')
+    
+    def update_collection_file_count(self, collection_name):
+        """
+        Update the file count indicator on a specific collection card
+        
+        Args:
+            collection_name (str): Name of the collection to update
+        """
+        if collection_name not in self.collection_cards:
+            print(f"Collection '{collection_name}' not found in cache")
+            return
+        
+        # Get fresh data from controller
+        collections_data = self.controller.get_collections()
+        collection_data = next((c for c in collections_data if c['name'] == collection_name), None)
+        
+        if not collection_data:
+            print(f"Collection '{collection_name}' not found in data")
+            return
+        
+        # Find the count label in the card widget
+        card = self.collection_cards[collection_name]
+        count_label = card.findChild(QLabel, "file_count_label")
+        
+        if count_label:
+            file_count = len(collection_data.get('files', []))
+            count_label.setText(f"Files: {file_count}")
+            print(f"Updated file count for '{collection_name}': {file_count}")
+        else:
+            print(f"Count label not found for '{collection_name}'")
+    
+    def refresh_all_collection_counts(self):
+        """
+        Refresh file counts for all collection cards.
+        
+        Useful when we don't know which specific collection changed.
+        """
+        print("Refreshing all collection file counts...")
+        
+        # Get fresh data from controller
+        collections_data = self.controller.get_collections()
+        
+        # Update each collection card
+        for collection_data in collections_data:
+            collection_name = collection_data.get('name')
+            if collection_name and collection_name in self.collection_cards:
+                card = self.collection_cards[collection_name]
+                count_label = card.findChild(QLabel, "file_count_label")
+                
+                if count_label:
+                    file_count = len(collection_data.get('files', []))
+                    count_label.setText(f"Files: {file_count}")
+                    print(f"  - Updated '{collection_name}': {file_count} files")
+        
+        print("All collection counts refreshed.")

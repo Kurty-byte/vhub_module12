@@ -11,8 +11,8 @@ class CollectionView(QWidget):
     file_accepted = pyqtSignal(str)
     file_rejected = pyqtSignal(str)
     file_uploaded = pyqtSignal(dict)
-    file_deleted = pyqtSignal(dict)  # NEW: Signal for file deletion
-    file_updated = pyqtSignal(dict)  # NEW: Signal for file update
+    file_deleted = pyqtSignal(dict)
+    file_updated = pyqtSignal(dict)
 
     def __init__(self, username, roles, primary_role, token, collection_name=None, stack=None):
         super().__init__()
@@ -195,6 +195,10 @@ class CollectionView(QWidget):
         
         # Then refresh to ensure consistency with data source
         self.refresh_collection_files()
+        
+        # Add collection name to file_data before forwarding
+        file_data['collection_name'] = self.collection_name
+        print(f"Added collection_name to deleted file_data: {self.collection_name}")
         
         # Forward signal to parent (AdminDash)
         self.file_deleted.emit(file_data)

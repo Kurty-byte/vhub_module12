@@ -92,13 +92,14 @@ class DocumentController:
         
         return deleted
     
-    def delete_file(self, filename: str, timestamp: str = None) -> Tuple[bool, str]:
+    def delete_file(self, filename: str = None, timestamp: str = None, file_id: int = None) -> Tuple[bool, str]:
         """
         Soft delete a file (move to deleted_files array and RecycleBin directory).
         
         Args:
-            filename (str): Name of the file to delete
-            timestamp (str, optional): Timestamp to identify specific file
+            filename (str, optional): Name of the file to delete (fallback)
+            timestamp (str, optional): Timestamp to identify specific file (fallback)
+            file_id (int, optional): Unique file ID (preferred method)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -114,17 +115,27 @@ class DocumentController:
             # Find the file to delete
             file_to_delete = None
             for i, file_data in enumerate(uploaded_files):
-                if file_data['filename'] == filename:
+                # Prefer file_id if provided
+                if file_id is not None:
+                    if file_data.get('file_id') == file_id:
+                        file_to_delete = uploaded_files.pop(i)
+                        break
+                # Fallback to filename + timestamp
+                elif file_data['filename'] == filename:
                     if timestamp is None or file_data.get('timestamp') == timestamp:
                         file_to_delete = uploaded_files.pop(i)
                         break
             
             if file_to_delete:
+                # Get file_id for tracking
+                deleted_file_id = file_to_delete.get('file_id')
+                deleted_filename = file_to_delete.get('filename')
+                
                 # CRITICAL: Store which collections this file belongs to BEFORE removing
-                collections_containing_file = self._get_collections_containing_file(filename)
+                collections_containing_file = self._get_collections_containing_file_by_id(deleted_file_id) if deleted_file_id else self._get_collections_containing_file(deleted_filename)
                 if collections_containing_file:
                     file_to_delete['_original_collections'] = collections_containing_file
-                    print(f"📋 Storing collection membership for '{filename}': {collections_containing_file}")
+                    print(f"📋 Storing collection membership for file_id {deleted_file_id} ('{deleted_filename}'): {collections_containing_file}")
                 
                 # Move physical file to RecycleBin
                 file_path = file_to_delete.get('file_path')
@@ -149,10 +160,14 @@ class DocumentController:
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
                 
-                # CRITICAL FIX: Remove file from all collections
-                success, msg, count = self.remove_file_from_all_collections(filename)
+                # CRITICAL FIX: Remove file from all collections (using file_id if available)
+                if deleted_file_id:
+                    success, msg, count = self.remove_file_from_all_collections_by_id(deleted_file_id)
+                else:
+                    success, msg, count = self.remove_file_from_all_collections(deleted_filename)
+                    
                 if success and count > 0:
-                    print(f"✓ Removed '{filename}' from {count} collection(s) during deletion")
+                    print(f"✓ Removed file_id {deleted_file_id} ('{deleted_filename}') from {count} collection(s) during deletion")
                 elif not success:
                     print(f"⚠ Warning: {msg}")
                 
@@ -163,13 +178,14 @@ class DocumentController:
         except Exception as e:
             return False, f"Error deleting file: {str(e)}"
     
-    def restore_file(self, filename: str, deleted_at: str = None) -> Tuple[bool, str]:
+    def restore_file(self, filename: str = None, deleted_at: str = None, file_id: int = None) -> Tuple[bool, str]:
         """
         Restore a soft-deleted file from RecycleBin.
         
         Args:
-            filename (str): Name of the file to restore
-            deleted_at (str, optional): Deletion timestamp to identify specific file
+            filename (str, optional): Name of the file to restore (fallback)
+            deleted_at (str, optional): Deletion timestamp to identify specific file (fallback)
+            file_id (int, optional): Unique file ID (preferred method)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -185,7 +201,13 @@ class DocumentController:
             # Find the file to restore
             file_to_restore = None
             for i, file_data in enumerate(deleted_files):
-                if file_data['filename'] == filename:
+                # Prefer file_id if provided
+                if file_id is not None:
+                    if file_data.get('file_id') == file_id:
+                        file_to_restore = deleted_files.pop(i)
+                        break
+                # Fallback to filename + deleted_at
+                elif file_data['filename'] == filename:
                     if deleted_at is None or file_data.get('deleted_at') == deleted_at:
                         file_to_restore = deleted_files.pop(i)
                         break
@@ -238,13 +260,14 @@ class DocumentController:
         except Exception as e:
             return False, f"Error restoring file: {str(e)}"
     
-    def permanent_delete_file(self, filename: str, deleted_at: str = None) -> Tuple[bool, str]:
+    def permanent_delete_file(self, filename: str = None, deleted_at: str = None, file_id: int = None) -> Tuple[bool, str]:
         """
         Permanently delete a file from deleted_files and RecycleBin.
         
         Args:
-            filename (str): Name of the file to permanently delete
-            deleted_at (str, optional): Deletion timestamp to identify specific file
+            filename (str, optional): Name of the file to permanently delete (fallback)
+            deleted_at (str, optional): Deletion timestamp to identify specific file (fallback)
+            file_id (int, optional): Unique file ID (preferred method)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -259,12 +282,22 @@ class DocumentController:
             # Find the file to permanently delete
             file_to_delete = None
             for i, file_data in enumerate(deleted_files):
-                if file_data['filename'] == filename:
+                # Prefer file_id if provided
+                if file_id is not None:
+                    if file_data.get('file_id') == file_id:
+                        file_to_delete = deleted_files.pop(i)
+                        break
+                # Fallback to filename + deleted_at
+                elif file_data['filename'] == filename:
                     if deleted_at is None or file_data.get('deleted_at') == deleted_at:
                         file_to_delete = deleted_files.pop(i)
                         break
             
             if file_to_delete:
+                # Get file info for logging
+                deleted_file_id = file_to_delete.get('file_id')
+                deleted_filename = file_to_delete.get('filename', filename)
+                
                 # Delete physical file from RecycleBin
                 recycle_bin_path = file_to_delete.get('recycle_bin_path')
                 if recycle_bin_path:
@@ -279,13 +312,17 @@ class DocumentController:
                     json.dump(data, f, indent=2)
                 
                 # CRITICAL FIX: Also remove from collections (in case it wasn't removed during soft delete)
-                success, msg, count = self.remove_file_from_all_collections(filename)
+                if deleted_file_id:
+                    success, msg, count = self.remove_file_from_all_collections_by_id(deleted_file_id)
+                else:
+                    success, msg, count = self.remove_file_from_all_collections(deleted_filename)
+                    
                 if success and count > 0:
-                    print(f"✓ Removed '{filename}' from {count} collection(s) during permanent deletion")
+                    print(f"✓ Removed file_id {deleted_file_id} ('{deleted_filename}') from {count} collection(s) during permanent deletion")
                 elif not success:
                     print(f"⚠ Warning: {msg}")
                 
-                return True, f"File '{filename}' permanently deleted"
+                return True, f"File '{deleted_filename}' (ID: {deleted_file_id}) permanently deleted"
             else:
                 return False, f"File '{filename}' not found in deleted files"
                 
@@ -729,6 +766,79 @@ class DocumentController:
                 if len(collection['files']) < original_count:
                     collections_affected += 1
                     print(f"Removed '{filename}' from collection '{collection.get('name')}'")
+            
+            # Save updated collections data
+            if collections_affected > 0:
+                with open(collections_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                
+                return True, f"File removed from {collections_affected} collection(s)", collections_affected
+            else:
+                return True, "File was not in any collections", 0
+            
+        except Exception as e:
+            return False, f"Error removing file from collections: {str(e)}", 0
+    
+    def _get_collections_containing_file_by_id(self, file_id: int) -> List[str]:
+        """
+        Get list of collection names that contain a specific file by ID.
+        
+        Args:
+            file_id (int): Unique ID of the file to search for
+            
+        Returns:
+            list: List of collection names containing this file
+        """
+        try:
+            collections_path = get_mock_data_path('collections_data.json')
+            with open(collections_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            collections = data.get('collections', [])
+            collection_names = []
+            
+            for collection in collections:
+                files = collection.get('files', [])
+                for file_data in files:
+                    if file_data.get('file_id') == file_id:
+                        collection_names.append(collection.get('name'))
+                        break
+            
+            return collection_names
+        except Exception as e:
+            print(f"Error getting collections containing file_id {file_id}: {str(e)}")
+            return []
+    
+    def remove_file_from_all_collections_by_id(self, file_id: int) -> Tuple[bool, str, int]:
+        """
+        Remove a file from ALL collections by file_id (used when file is deleted).
+        
+        Args:
+            file_id (int): Unique ID of the file to remove from all collections
+            
+        Returns:
+            tuple: (success: bool, message: str, count: int) - count is number of collections affected
+        """
+        try:
+            collections_path = get_mock_data_path('collections_data.json')
+            with open(collections_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            collections = data.get('collections', [])
+            collections_affected = 0
+            
+            # Search through all collections and remove the file
+            for collection in collections:
+                files = collection.get('files', [])
+                original_count = len(files)
+                
+                # Remove all instances of this file_id from the collection
+                collection['files'] = [f for f in files if f.get('file_id') != file_id]
+                
+                # Track if this collection was affected
+                if len(collection['files']) < original_count:
+                    collections_affected += 1
+                    print(f"Removed file_id {file_id} from collection '{collection.get('name')}'")
             
             # Save updated collections data
             if collections_affected > 0:
