@@ -2,10 +2,12 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton,
                              QHBoxLayout, QFrame, QLineEdit, QScrollArea,
                              QTableView, QHeaderView,
                              QSizePolicy, QStackedWidget, QMessageBox)
-from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem, QPainter, QColor, QPen
+from PyQt6.QtCore import Qt, QRect
 from ...controller.document_controller import DocumentController
 from ...utils.icon_utils import create_menu_button, create_search_button, IconLoader
+
+from .DonutWidget import DonutChartWidget
 
 
 class AdminDash(QWidget):
@@ -57,6 +59,9 @@ class AdminDash(QWidget):
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.stack)
         self.setLayout(main_layout)
+        # self.refresh_storage_chart() #for testing only
+
+        
 
     def init_ui(self):
         main_layout = QVBoxLayout()
@@ -213,16 +218,20 @@ class AdminDash(QWidget):
         # Load storage data using controller
         storage_data = self.controller.get_storage_info()
         
-        # Placeholder for donut chart (will be custom widget later)
-        chart_placeholder = QLabel(f"{storage_data['usage_percentage']}%\nTotal Size: {storage_data['total_size_gb']} GB")
-        chart_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        chart_placeholder.setMinimumHeight(250)
-        chart_layout.addWidget(chart_placeholder)
+        # Create actual donut chart widget
+        self.donut_chart = DonutChartWidget(
+            used_percentage=storage_data['usage_percentage'],
+            used_gb=storage_data['used_size_gb'],
+            total_gb=storage_data['total_size_gb']
+        )
+        self.donut_chart.setMinimumHeight(250)
+        chart_layout.addWidget(self.donut_chart)
         
         legend_layout = QVBoxLayout()
         
         used_row = QHBoxLayout()
-        used_color = QLabel("■") 
+        used_color = QLabel("●") 
+        used_color.setStyleSheet("color: #084924; font-size: 16px; font-weight: bold;")  # for GREEN color
         used_label = QLabel("Used Storage")
         used_size = QLabel(f"Actual Size: {storage_data['used_size_gb']} GB")
         used_row.addWidget(used_color)
@@ -231,13 +240,15 @@ class AdminDash(QWidget):
         used_row.addWidget(used_size)
 
         free_row = QHBoxLayout()
-        free_color = QLabel("□")
+        free_color = QLabel("●")
+        free_color.setStyleSheet("color: #E0E0E0; font-size: 16px; font-weight: bold;")  # this is ofr LIGHT GRAY colow
         free_label = QLabel("Free Space")
         free_size = QLabel(f"Unused Size: {storage_data['free_size_gb']} GB")
         free_row.addWidget(free_color)
         free_row.addWidget(free_label)
         free_row.addStretch()
         free_row.addWidget(free_size)
+        
         
         legend_layout.addLayout(used_row)
         legend_layout.addLayout(free_row)
@@ -897,3 +908,23 @@ class AdminDash(QWidget):
                     print(f"  - Updated '{collection_name}': {file_count} files")
         
         print("All collection counts refreshed.")
+        
+        
+    def refresh_storage_chart(self):
+        """
+        refresh the storage chart with updated data from the controller
+        u can call this when
+        
+            after uploading files and after file deletions
+            (and maybe after some operations that updates
+            the storage of the vault)
+        
+        """
+        storage_data = self.controller.get_storage_info()
+        if hasattr(self, 'donut_chart'):
+            self.donut_chart.update_data(
+                used_percentage=storage_data['usage_percentage'],
+                # used_percentage=25, # for TESTING (uncomment this to show a percentage)
+                used_gb=storage_data['used_size_gb'],
+                total_gb=storage_data['total_size_gb']
+            )
