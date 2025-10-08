@@ -909,11 +909,15 @@ class AdminDash(QWidget):
     def auto_cleanup_recycle_bin(self):
         """Automatically cleanup old files from recycle bin on startup"""
         try:
+            print("DEBUG: Starting auto-cleanup on startup...")
             success, message, count = self.controller.cleanup_old_recycle_bin_files(days=15)
             if success and count > 0:
                 print(f"Auto-cleanup: {message}")
+                print(f"WARNING: {count} files were auto-deleted on startup!")
             elif not success:
                 print(f"Auto-cleanup failed: {message}")
+            else:
+                print("DEBUG: Auto-cleanup completed, no files deleted")
         except Exception as e:
             print(f"Error during auto-cleanup: {str(e)}")
     

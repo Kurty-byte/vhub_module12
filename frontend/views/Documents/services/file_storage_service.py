@@ -148,6 +148,12 @@ class FileStorageService:
             # Move file to recycle bin
             shutil.move(full_path, recycle_bin_path)
             
+            # CRITICAL FIX: Update the file's modification time to NOW
+            # This ensures auto-cleanup calculates age from deletion time, not original file creation time
+            import time
+            current_time = time.time()
+            os.utime(recycle_bin_path, (current_time, current_time))
+            
             return {
                 "success": True,
                 "recycle_bin_path": recycle_filename,
@@ -235,6 +241,8 @@ class FileStorageService:
             deleted_files = []
             current_time = datetime.now()
             
+            print(f"DEBUG cleanup_old_recycle_bin_files: Current time = {current_time}, threshold = {days} days")
+            
             # Iterate through all files in recycle bin
             for filename in os.listdir(self.recycle_bin_directory):
                 file_path = os.path.join(self.recycle_bin_directory, filename)
@@ -249,12 +257,16 @@ class FileStorageService:
                 # Calculate age in days
                 age_days = (current_time - file_mtime).days
                 
+                print(f"DEBUG: File '{filename}' - mtime: {file_mtime}, age: {age_days} days")
+                
                 # Delete if older than specified days
                 if age_days >= days:
                     os.remove(file_path)
                     deleted_count += 1
                     deleted_files.append(filename)
                     print(f"Auto-deleted: {filename} (age: {age_days} days)")
+                else:
+                    print(f"Keeping: {filename} (age: {age_days} days < {days} days threshold)")
             
             return {
                 "success": True,

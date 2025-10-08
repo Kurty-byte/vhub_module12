@@ -75,7 +75,7 @@ def _get_default_structure(filename):
     if 'collections' in filename.lower():
         return {"collections": []}
     elif 'files' in filename.lower():
-        return {"uploaded_files": [], "deleted_files": []}
+        return {"files": [], "next_file_id": 1}
     elif 'storage' in filename.lower():
         return {
             "total_size_gb": 100.0,
@@ -89,35 +89,45 @@ def _get_default_structure(filename):
 
 def get_uploaded_files():
     """
-    Load uploaded files data from JSON with safe defaults.
+    Load uploaded (active) files data from JSON with safe defaults.
+    Filters files where is_deleted is False or not present.
     
     Returns:
         list: List of dictionaries containing file information
-              [{"filename": str, "time": str, "extension": str}, ...]
+              [{"filename": str, "time": str, "extension": str, "is_deleted": False}, ...]
     """
     data = load_json_data('files_data.json')
-    uploaded_files = data.get('uploaded_files', [])
+    all_files = data.get('files', [])
+    
     # Ensure it's a list
-    if not isinstance(uploaded_files, list):
-        print("Warning: uploaded_files is not a list, returning empty list")
+    if not isinstance(all_files, list):
+        print("Warning: files is not a list, returning empty list")
         return []
+    
+    # Filter for non-deleted files
+    uploaded_files = [f for f in all_files if not f.get('is_deleted', False)]
     return uploaded_files
 
 
 def get_deleted_files():
     """
     Load deleted files data from JSON with safe defaults.
+    Filters files where is_deleted is True.
     
     Returns:
         list: List of dictionaries containing deleted file information
-              [{"filename": str, "time": str, "extension": str}, ...]
+              [{"filename": str, "time": str, "extension": str, "is_deleted": True}, ...]
     """
     data = load_json_data('files_data.json')
-    deleted_files = data.get('deleted_files', [])
+    all_files = data.get('files', [])
+    
     # Ensure it's a list
-    if not isinstance(deleted_files, list):
-        print("Warning: deleted_files is not a list, returning empty list")
+    if not isinstance(all_files, list):
+        print("Warning: files is not a list, returning empty list")
         return []
+    
+    # Filter for deleted files
+    deleted_files = [f for f in all_files if f.get('is_deleted', False)]
     return deleted_files
 
 

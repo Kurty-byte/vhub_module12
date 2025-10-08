@@ -49,7 +49,7 @@ class DocumentCRUDService:
         if 'collections' in filepath:
             return {"collections": []}
         elif 'files' in filepath:
-            return {"uploaded_files": [], "deleted_files": []}
+            return {"files": [], "next_file_id": 1}
         else:
             return {}
     
@@ -82,12 +82,11 @@ class DocumentCRUDService:
             next_id = data['next_file_id']
         else:
             # Initialize based on existing files
-            uploaded_files = data.get('uploaded_files', [])
-            deleted_files = data.get('deleted_files', [])
+            all_files = data.get('files', [])
             
             # Find max existing file_id
             max_id = 0
-            for file_data in uploaded_files + deleted_files:
+            for file_data in all_files:
                 if 'file_id' in file_data:
                     max_id = max(max_id, file_data['file_id'])
             
@@ -213,7 +212,7 @@ class DocumentCRUDService:
                     "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
                     "uploader": uploader,
                     "role": role,
-                    "status": "available",  # NEW: available, soft_deleted, permanently_deleted
+                    "is_deleted": False,  # NEW: Track deletion status
                     "approval_status": "pending"  # NEW: pending, accepted, rejected
                 }
                 
@@ -229,8 +228,8 @@ class DocumentCRUDService:
         # Save updated collections
         data["collections"] = collections
         if self._save_json(self.collections_file, data):
-            # Also add to uploaded files list (using the SAME file_id)
-            self._add_to_uploaded_files(filename, file_path, category, extension, uploader, role, file_id)
+            # Also add to files list (using the SAME file_id)
+            self._add_to_files_list(filename, file_path, category, extension, uploader, role, file_id)
             
             # Add collection info to the file data
             new_file['collection_name'] = collection.get('name')
@@ -248,7 +247,7 @@ class DocumentCRUDService:
     
     def add_file_standalone(self, filename, file_path, category, extension, uploader, role):
         """
-        Add a file to the uploaded files list (not in a collection).
+        Add a file to the files list (not in a collection).
         
         Args:
             filename (str): Name of the file
@@ -273,11 +272,11 @@ class DocumentCRUDService:
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
             "uploader": uploader,
             "role": role,
-            "status": "available",  # NEW: available, soft_deleted, permanently_deleted
+            "is_deleted": False,  # NEW: Track deletion status
             "approval_status": "pending"  # NEW: pending, accepted, rejected
         }
         
-        if self._add_to_uploaded_files(filename, file_path, category, extension, uploader, role, file_id):
+        if self._add_to_files_list(filename, file_path, category, extension, uploader, role, file_id):
             return {
                 "success": True,
                 "file": new_file
@@ -288,10 +287,10 @@ class DocumentCRUDService:
                 "error": "Failed to save file"
             }
     
-    def _add_to_uploaded_files(self, filename, file_path, category, extension, uploader, role, file_id=None):
-        """Add a file to the uploaded files list"""
+    def _add_to_files_list(self, filename, file_path, category, extension, uploader, role, file_id=None):
+        """Add a file to the files list"""
         data = self._load_json(self.files_file)
-        uploaded_files = data.get("uploaded_files", [])
+        all_files = data.get("files", [])
         
         # Generate file_id if not provided
         if file_id is None:
@@ -299,7 +298,7 @@ class DocumentCRUDService:
         
         now = datetime.now()
         new_file = {
-            "file_id": file_id,  # NEW: Unique file identifier
+            "file_id": file_id,  # Unique file identifier
             "filename": filename,
             "time": now.strftime("%I:%M %p").lower(),
             "extension": extension,
@@ -309,23 +308,25 @@ class DocumentCRUDService:
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
             "uploader": uploader,
             "role": role,
-            "status": "available",  # NEW: available, soft_deleted, permanently_deleted
-            "approval_status": "pending"  # NEW: pending, accepted, rejected
+            "is_deleted": False,  # Track deletion status
+            "approval_status": "pending"  # pending, accepted, rejected
         }
         
-        uploaded_files.append(new_file)
-        data["uploaded_files"] = uploaded_files
+        all_files.append(new_file)
+        data["files"] = all_files
         
         return self._save_json(self.files_file, data)
     
     def get_all_uploaded_files(self):
-        """Get all uploaded files with safe fallback"""
+        """Get all uploaded (non-deleted) files with safe fallback"""
         data = self._load_json(self.files_file)
-        uploaded_files = data.get("uploaded_files", [])
+        all_files = data.get("files", [])
         # Ensure it's a list
-        if not isinstance(uploaded_files, list):
-            print(f"Warning: uploaded_files is not a list, returning empty list")
+        if not isinstance(all_files, list):
+            print(f"Warning: files is not a list, returning empty list")
             return []
+        # Filter for non-deleted files
+        uploaded_files = [f for f in all_files if not f.get('is_deleted', False)]
         return uploaded_files
     
     def get_files_by_collection(self, collection_id):

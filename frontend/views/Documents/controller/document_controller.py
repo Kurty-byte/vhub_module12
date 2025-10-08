@@ -92,14 +92,12 @@ class DocumentController:
         
         return deleted
     
-    def delete_file(self, filename: str = None, timestamp: str = None, file_id: int = None) -> Tuple[bool, str]:
+    def delete_file(self, file_id: int) -> Tuple[bool, str]:
         """
-        Soft delete a file (move to deleted_files array and RecycleBin directory).
+        Soft delete a file (mark as deleted with is_deleted=True and move to RecycleBin directory).
         
         Args:
-            filename (str, optional): Name of the file to delete (fallback)
-            timestamp (str, optional): Timestamp to identify specific file (fallback)
-            file_id (int, optional): Unique file ID (preferred method)
+            file_id (int): Unique file ID (REQUIRED)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -109,24 +107,22 @@ class DocumentController:
             with open(files_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            uploaded_files = data.get('uploaded_files', [])
-            deleted_files = data.get('deleted_files', [])
+            all_files = data.get('files', [])
             
-            # Find the file to delete
+            # Find the file to delete by file_id
             file_to_delete = None
-            for i, file_data in enumerate(uploaded_files):
-                # Prefer file_id if provided
-                if file_id is not None:
-                    if file_data.get('file_id') == file_id:
-                        file_to_delete = uploaded_files.pop(i)
-                        break
-                # Fallback to filename + timestamp
-                elif file_data['filename'] == filename:
-                    if timestamp is None or file_data.get('timestamp') == timestamp:
-                        file_to_delete = uploaded_files.pop(i)
-                        break
+            file_index = None
+            for i, file_data in enumerate(all_files):
+                # Skip already deleted files
+                if file_data.get('is_deleted', False):
+                    continue
+                    
+                if file_data.get('file_id') == file_id:
+                    file_to_delete = file_data
+                    file_index = i
+                    break
             
-            if file_to_delete:
+            if file_to_delete and file_index is not None:
                 # Get file_id for tracking
                 deleted_file_id = file_to_delete.get('file_id')
                 deleted_filename = file_to_delete.get('filename')
@@ -149,16 +145,21 @@ class DocumentController:
                 else:
                     file_to_delete['deleted_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Add deletion metadata
+                # Mark as deleted and add deletion metadata
+                file_to_delete['is_deleted'] = True
                 file_to_delete['deleted_by'] = self.username
-                deleted_files.append(file_to_delete)
                 
-                # Save updated data
-                data['uploaded_files'] = uploaded_files
-                data['deleted_files'] = deleted_files
+                # Update the file in place
+                all_files[file_index] = file_to_delete
+                data['files'] = all_files
+                
+                print(f"DEBUG delete_file: Saving to JSON. Total files in array: {len(all_files)}")
+                print(f"DEBUG delete_file: File being saved - file_id={file_to_delete.get('file_id')}, is_deleted={file_to_delete.get('is_deleted')}, filename={file_to_delete.get('filename')}")
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
+                    
+                print(f"DEBUG delete_file: Successfully saved to {files_path}")
                 
                 # CRITICAL FIX: Remove file from all collections (using file_id if available)
                 if deleted_file_id:
@@ -171,21 +172,19 @@ class DocumentController:
                 elif not success:
                     print(f"⚠ Warning: {msg}")
                 
-                return True, f"File '{filename}' moved to recycle bin"
+                return True, f"File '{deleted_filename}' (ID: {deleted_file_id}) moved to recycle bin"
             else:
-                return False, f"File '{filename}' not found"
+                return False, f"File with ID {file_id} not found"
                 
         except Exception as e:
             return False, f"Error deleting file: {str(e)}"
     
-    def restore_file(self, filename: str = None, deleted_at: str = None, file_id: int = None) -> Tuple[bool, str]:
+    def restore_file(self, file_id: int) -> Tuple[bool, str]:
         """
-        Restore a soft-deleted file from RecycleBin.
+        Restore a soft-deleted file from RecycleBin (mark is_deleted=False).
         
         Args:
-            filename (str, optional): Name of the file to restore (fallback)
-            deleted_at (str, optional): Deletion timestamp to identify specific file (fallback)
-            file_id (int, optional): Unique file ID (preferred method)
+            file_id (int): Unique file ID (REQUIRED)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -195,24 +194,26 @@ class DocumentController:
             with open(files_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            uploaded_files = data.get('uploaded_files', [])
-            deleted_files = data.get('deleted_files', [])
+            all_files = data.get('files', [])
             
-            # Find the file to restore
+            # Find the file to restore by file_id
             file_to_restore = None
-            for i, file_data in enumerate(deleted_files):
-                # Prefer file_id if provided
-                if file_id is not None:
-                    if file_data.get('file_id') == file_id:
-                        file_to_restore = deleted_files.pop(i)
-                        break
-                # Fallback to filename + deleted_at
-                elif file_data['filename'] == filename:
-                    if deleted_at is None or file_data.get('deleted_at') == deleted_at:
-                        file_to_restore = deleted_files.pop(i)
-                        break
+            file_index = None
+            for i, file_data in enumerate(all_files):
+                # Only look at deleted files
+                if not file_data.get('is_deleted', False):
+                    continue
+                    
+                if file_data.get('file_id') == file_id:
+                    file_to_restore = file_data
+                    file_index = i
+                    break
             
-            if file_to_restore:
+            if file_to_restore and file_index is not None:
+                # Get filename for logging
+                restored_filename = file_to_restore.get('filename', 'Unknown')
+                restored_file_id = file_to_restore.get('file_id')
+                
                 # Restore physical file from RecycleBin
                 recycle_bin_path = file_to_restore.get('recycle_bin_path')
                 original_path = file_to_restore.get('file_path')
@@ -225,16 +226,16 @@ class DocumentController:
                 # Get original collections this file belonged to
                 original_collections = file_to_restore.get('_original_collections', [])
                 
-                # Remove deletion metadata
+                # Mark as not deleted and remove deletion metadata
+                file_to_restore['is_deleted'] = False
                 file_to_restore.pop('deleted_at', None)
                 file_to_restore.pop('deleted_by', None)
                 file_to_restore.pop('recycle_bin_path', None)
                 file_to_restore.pop('_original_collections', None)  # Remove the tracking field
-                uploaded_files.append(file_to_restore)
                 
-                # Save updated data
-                data['uploaded_files'] = uploaded_files
-                data['deleted_files'] = deleted_files
+                # Update the file in place
+                all_files[file_index] = file_to_restore
+                data['files'] = all_files
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
@@ -246,28 +247,26 @@ class DocumentController:
                         success, msg = self.add_file_to_collection(collection_name, file_to_restore)
                         if success:
                             restored_count += 1
-                            print(f"✓ Restored '{filename}' to collection '{collection_name}'")
+                            print(f"✓ Restored '{restored_filename}' (ID: {restored_file_id}) to collection '{collection_name}'")
                         else:
                             print(f"⚠ Warning: Could not restore to '{collection_name}': {msg}")
                     
                     if restored_count > 0:
-                        return True, f"File '{filename}' restored to {restored_count} collection(s)"
+                        return True, f"File '{restored_filename}' (ID: {restored_file_id}) restored to {restored_count} collection(s)"
                 
-                return True, f"File '{filename}' restored successfully"
+                return True, f"File '{restored_filename}' (ID: {restored_file_id}) restored successfully"
             else:
-                return False, f"File '{filename}' not found in deleted files"
+                return False, f"File with ID {file_id} not found in deleted files"
                 
         except Exception as e:
             return False, f"Error restoring file: {str(e)}"
     
-    def permanent_delete_file(self, filename: str = None, deleted_at: str = None, file_id: int = None) -> Tuple[bool, str]:
+    def permanent_delete_file(self, file_id: int) -> Tuple[bool, str]:
         """
-        Permanently delete a file from deleted_files and RecycleBin.
+        Permanently delete a file (remove from files array and RecycleBin).
         
         Args:
-            filename (str, optional): Name of the file to permanently delete (fallback)
-            deleted_at (str, optional): Deletion timestamp to identify specific file (fallback)
-            file_id (int, optional): Unique file ID (preferred method)
+            file_id (int): Unique file ID (REQUIRED)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -277,26 +276,25 @@ class DocumentController:
             with open(files_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            deleted_files = data.get('deleted_files', [])
+            all_files = data.get('files', [])
             
-            # Find the file to permanently delete
+            # Find the file to permanently delete by file_id
             file_to_delete = None
-            for i, file_data in enumerate(deleted_files):
-                # Prefer file_id if provided
-                if file_id is not None:
-                    if file_data.get('file_id') == file_id:
-                        file_to_delete = deleted_files.pop(i)
-                        break
-                # Fallback to filename + deleted_at
-                elif file_data['filename'] == filename:
-                    if deleted_at is None or file_data.get('deleted_at') == deleted_at:
-                        file_to_delete = deleted_files.pop(i)
-                        break
+            file_index = None
+            for i, file_data in enumerate(all_files):
+                # Only look at deleted files
+                if not file_data.get('is_deleted', False):
+                    continue
+                    
+                if file_data.get('file_id') == file_id:
+                    file_to_delete = file_data
+                    file_index = i
+                    break
             
-            if file_to_delete:
+            if file_to_delete and file_index is not None:
                 # Get file info for logging
                 deleted_file_id = file_to_delete.get('file_id')
-                deleted_filename = file_to_delete.get('filename', filename)
+                deleted_filename = file_to_delete.get('filename', 'Unknown')
                 
                 # Delete physical file from RecycleBin
                 recycle_bin_path = file_to_delete.get('recycle_bin_path')
@@ -305,17 +303,15 @@ class DocumentController:
                     if not result['success']:
                         print(f"Warning: Failed to delete from recycle bin: {result.get('error')}")
                 
-                # Save updated data
-                data['deleted_files'] = deleted_files
+                # Remove from files array
+                all_files.pop(file_index)
+                data['files'] = all_files
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
                 
-                # CRITICAL FIX: Also remove from collections (in case it wasn't removed during soft delete)
-                if deleted_file_id:
-                    success, msg, count = self.remove_file_from_all_collections_by_id(deleted_file_id)
-                else:
-                    success, msg, count = self.remove_file_from_all_collections(deleted_filename)
+                # CRITICAL FIX: Also remove from collections by file_id
+                success, msg, count = self.remove_file_from_all_collections_by_id(deleted_file_id)
                     
                 if success and count > 0:
                     print(f"✓ Removed file_id {deleted_file_id} ('{deleted_filename}') from {count} collection(s) during permanent deletion")
@@ -324,7 +320,7 @@ class DocumentController:
                 
                 return True, f"File '{deleted_filename}' (ID: {deleted_file_id}) permanently deleted"
             else:
-                return False, f"File '{filename}' not found in deleted files"
+                return False, f"File with ID {file_id} not found in deleted files"
                 
         except Exception as e:
             return False, f"Error permanently deleting file: {str(e)}"
@@ -374,8 +370,19 @@ class DocumentController:
             if not result['success']:
                 return False, result.get('error', 'Upload failed'), None
             
-            # Create file metadata
+            # Add to JSON data first to get next_file_id
+            files_path = get_mock_data_path('files_data.json')
+            with open(files_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Generate unique file_id
+            next_file_id = data.get('next_file_id', 1)
+            file_id = next_file_id
+            data['next_file_id'] = next_file_id + 1
+            
+            # Create file metadata with file_id
             file_data = {
+                'file_id': file_id,  # CRITICAL: Unique file identifier
                 'filename': result['filename'],
                 'time': datetime.now().strftime("%I:%M %p").lower(),
                 'extension': result['extension'],
@@ -385,23 +392,25 @@ class DocumentController:
                 'uploaded_date': datetime.now().strftime("%m/%d/%Y"),
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'uploader': self.username,
-                'role': self.primary_role
+                'role': self.primary_role,
+                'is_deleted': False  # Track deletion status
             }
             
             if description:
                 file_data['description'] = description
             
-            # Add to JSON data
-            files_path = get_mock_data_path('files_data.json')
-            with open(files_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # Add to files array
+            all_files = data.get('files', [])
+            all_files.append(file_data)
+            data['files'] = all_files
             
-            uploaded_files = data.get('uploaded_files', [])
-            uploaded_files.append(file_data)
-            data['uploaded_files'] = uploaded_files
+            print(f"DEBUG upload_file: Uploading file. file_id={file_id}, filename={file_data['filename']}, is_deleted={file_data['is_deleted']}")
+            print(f"DEBUG upload_file: Total files in array after upload: {len(all_files)}")
             
             with open(files_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
+                
+            print(f"DEBUG upload_file: Successfully saved to {files_path}")
             
             success_msg = "File uploaded successfully"
             if is_duplicate and not force_override:
@@ -414,18 +423,16 @@ class DocumentController:
         except Exception as e:
             return False, f"Error uploading file: {str(e)}", None
     
-    def update_file(self, old_filename: str, new_filename: str = None, 
-                   category: str = None, description: str = None, 
-                   timestamp: str = None) -> Tuple[bool, str, Optional[Dict]]:
+    def update_file(self, file_id: int, new_filename: str = None, 
+                   category: str = None, description: str = None) -> Tuple[bool, str, Optional[Dict]]:
         """
         Update file metadata (filename, category, description).
         
         Args:
-            old_filename (str): Current filename
+            file_id (int): Unique file ID (REQUIRED)
             new_filename (str, optional): New filename (if renaming)
             category (str, optional): New category
             description (str, optional): New description
-            timestamp (str, optional): File timestamp for identification
             
         Returns:
             tuple: (success: bool, message: str, updated_file_data: dict or None)
@@ -435,19 +442,22 @@ class DocumentController:
             with open(files_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            uploaded_files = data.get('uploaded_files', [])
+            all_files = data.get('files', [])
             
-            # Find the file to update
+            # Find the file to update by file_id (only non-deleted files)
             file_to_update = None
             file_index = -1
-            for i, file_data in enumerate(uploaded_files):
-                if file_data['filename'] == old_filename:
-                    if timestamp is None or file_data.get('timestamp') == timestamp:
-                        file_to_update = file_data
-                        file_index = i
-                        break
+            for i, file_data in enumerate(all_files):
+                if file_data.get('is_deleted', False):
+                    continue
+                if file_data.get('file_id') == file_id:
+                    file_to_update = file_data
+                    file_index = i
+                    break
             
             if file_to_update:
+                old_filename = file_to_update.get('filename')
+                
                 # Update filename if provided and different
                 if new_filename and new_filename != old_filename:
                     file_to_update['filename'] = new_filename
@@ -463,29 +473,29 @@ class DocumentController:
                     file_to_update['description'] = description
                 
                 # Save updated data
-                uploaded_files[file_index] = file_to_update
-                data['uploaded_files'] = uploaded_files
+                all_files[file_index] = file_to_update
+                data['files'] = all_files
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
                 
-                # Also update in collections if file exists there
+                # Also update in collections by file_id
                 if new_filename and new_filename != old_filename:
-                    self._update_file_in_collections(old_filename, file_to_update)
+                    self._update_file_in_collections_by_id(file_id, file_to_update)
                 
-                return True, f"File '{new_filename or old_filename}' updated successfully", file_to_update
+                return True, f"File '{new_filename or old_filename}' (ID: {file_id}) updated successfully", file_to_update
             else:
-                return False, f"File '{old_filename}' not found", None
+                return False, f"File with ID {file_id} not found", None
                 
         except Exception as e:
             return False, f"Error updating file: {str(e)}", None
     
-    def _update_file_in_collections(self, old_filename: str, updated_file_data: Dict) -> None:
+    def _update_file_in_collections_by_id(self, file_id: int, updated_file_data: Dict) -> None:
         """
-        Update file data in all collections that contain it.
+        Update file data in all collections that contain it (by file_id).
         
         Args:
-            old_filename (str): Original filename to find
+            file_id (int): File ID to find
             updated_file_data (dict): New file data to replace with
         """
         try:
@@ -499,11 +509,11 @@ class DocumentController:
             for collection in collections:
                 files = collection.get('files', [])
                 for i, file_data in enumerate(files):
-                    if file_data.get('filename') == old_filename:
+                    if file_data.get('file_id') == file_id:
                         # Update the file data in this collection
                         collection['files'][i] = updated_file_data.copy()
                         updated = True
-                        print(f"Updated '{old_filename}' in collection '{collection.get('name')}'")
+                        print(f"Updated file_id {file_id} in collection '{collection.get('name')}'")
             
             if updated:
                 with open(collections_path, 'w', encoding='utf-8') as f:
@@ -526,9 +536,9 @@ class DocumentController:
             with open(files_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            uploaded_files = data.get('uploaded_files', [])
-            # Remove file with matching filename
-            data['uploaded_files'] = [f for f in uploaded_files if f.get('filename') != filename]
+            all_files = data.get('files', [])
+            # Remove file with matching filename (permanently)
+            data['files'] = [f for f in all_files if f.get('filename') != filename]
             
             with open(files_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
@@ -899,13 +909,12 @@ class DocumentController:
     
     # ==================== UTILITY METHODS ====================
     
-    def get_file_details(self, filename: str, timestamp: str = None) -> Optional[Dict]:
+    def get_file_details(self, file_id: int) -> Optional[Dict]:
         """
-        Get detailed information about a file.
+        Get detailed information about a file by its ID.
         
         Args:
-            filename (str): Name of the file
-            timestamp (str, optional): Timestamp to identify specific file
+            file_id (int): Unique file ID (REQUIRED)
             
         Returns:
             dict or None: File details if found
@@ -913,9 +922,8 @@ class DocumentController:
         files = get_uploaded_files()
         
         for file_data in files:
-            if file_data['filename'] == filename:
-                if timestamp is None or file_data.get('timestamp') == timestamp:
-                    return file_data
+            if file_data.get('file_id') == file_id:
+                return file_data
         
         return None
     
@@ -950,21 +958,21 @@ class DocumentController:
             deleted_count = result.get('deleted_count', 0)
             
             if deleted_count > 0:
-                # Remove entries from deleted_files in JSON
+                # Remove entries from files array in JSON (permanently delete)
                 files_path = get_mock_data_path('files_data.json')
                 with open(files_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
-                deleted_files = data.get('deleted_files', [])
+                all_files = data.get('files', [])
                 
                 # Filter out files that were auto-deleted
-                updated_deleted_files = []
-                for file_data in deleted_files:
+                updated_files = []
+                for file_data in all_files:
                     recycle_bin_path = file_data.get('recycle_bin_path')
                     if recycle_bin_path not in deleted_filenames:
-                        updated_deleted_files.append(file_data)
+                        updated_files.append(file_data)
                 
-                data['deleted_files'] = updated_deleted_files
+                data['files'] = updated_files
                 
                 with open(files_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)

@@ -57,7 +57,7 @@ class AddCollectionDialog(QDialog):
         icon_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         folder_icon = IconLoader.create_icon_label(
-            "folder.png", 
+            "folder1.png", 
             size=(64, 64), 
             alignment=Qt.AlignmentFlag.AlignCenter
         )
@@ -137,7 +137,7 @@ class AddCollectionDialog(QDialog):
         # result = crud_service.create_collection(collection_name, icon="folder.png")
         result = crud_service.create_collection(
             collection_name,
-            icon="folder.png",
+            icon="folder1.png",
             created_by=username,
             description=description
         )

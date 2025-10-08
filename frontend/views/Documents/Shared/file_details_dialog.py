@@ -281,28 +281,29 @@ class FileDetailsDialog(QDialog):
             QMessageBox.warning(self, "Invalid Input", "Filename cannot be empty")
             return
         
-        # Get old filename and timestamp
-        old_filename = self.file_data.get('filename')
-        timestamp = self.file_data.get('timestamp')
+        # Get file_id from file_data
+        file_id = self.file_data.get('file_id')
+        
+        if not file_id:
+            QMessageBox.warning(self, "Error", "Cannot update file: Missing file ID")
+            return
         
         # Call controller to update file
         success, message, updated_file_data = self.controller.update_file(
-            old_filename=old_filename,
+            file_id=file_id,
             new_filename=new_filename,
             category=new_category,
-            description=new_description,
-            timestamp=timestamp
+            description=new_description
         )
         
         # If file update was successful, also update collection if it changed
         if success and updated_file_data:
             old_collection = self.file_data.get('collection', 'None')
             if new_collection != old_collection:
-                # Update collection field
+                # Update collection field using file_id
                 collection_success, collection_message = self.controller.update_file_collection(
-                    filename=updated_file_data.get('filename'),  # Use updated filename
-                    collection_name=new_collection if new_collection != "None" else None,
-                    timestamp=timestamp
+                    file_id=file_id,
+                    collection_name=new_collection if new_collection != "None" else None
                 )
                 
                 if collection_success:
@@ -378,10 +379,12 @@ class FileDetailsDialog(QDialog):
             
             if reply == QMessageBox.StandardButton.Yes:
                 if self.controller:
-                    success, message = self.controller.permanent_delete_file(
-                        filename, 
-                        self.file_data.get('deleted_at')
-                    )
+                    file_id = self.file_data.get('file_id')
+                    if not file_id:
+                        QMessageBox.warning(self, "Error", "Cannot delete file: Missing file ID")
+                        return
+                    
+                    success, message = self.controller.permanent_delete_file(file_id)
                     
                     if success:
                         QMessageBox.information(self, "Success", message)
@@ -401,7 +404,12 @@ class FileDetailsDialog(QDialog):
             
             if reply == QMessageBox.StandardButton.Yes:
                 if self.controller:
-                    success, message = self.controller.delete_file(filename)
+                    file_id = self.file_data.get('file_id')
+                    if not file_id:
+                        QMessageBox.warning(self, "Error", "Cannot delete file: Missing file ID")
+                        return
+                    
+                    success, message = self.controller.delete_file(file_id)
                     
                     if success:
                         QMessageBox.information(self, "Success", message)
@@ -424,10 +432,12 @@ class FileDetailsDialog(QDialog):
         
         if reply == QMessageBox.StandardButton.Yes:
             if self.controller:
-                success, message = self.controller.restore_file(
-                    filename, 
-                    self.file_data.get('deleted_at')
-                )
+                file_id = self.file_data.get('file_id')
+                if not file_id:
+                    QMessageBox.warning(self, "Error", "Cannot restore file: Missing file ID")
+                    return
+                
+                success, message = self.controller.restore_file(file_id)
                 
                 if success:
                     QMessageBox.information(self, "Success", message)

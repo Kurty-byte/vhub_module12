@@ -306,12 +306,16 @@ class DeletedFileView(QWidget):
                     file_data = f.copy()  # Make a copy to preserve original data
                     break
             
-            success, message = self.controller.restore_file(filename, deleted_at)
+            if not file_data or not file_data.get('file_id'):
+                QMessageBox.warning(self, "Error", "Cannot restore file: Missing file ID")
+                return
+            
+            success, message = self.controller.restore_file(file_data['file_id'])
             
             if success:
                 QMessageBox.information(self, "Success", message)
                 # Emit signal to notify parent with full file data (includes _original_collections)
-                self.file_restored.emit(file_data if file_data else {'filename': filename, 'deleted_at': deleted_at})
+                self.file_restored.emit(file_data)
                 # Remove file incrementally instead of full reload
                 self._remove_file_from_table(filename, deleted_at)
             else:
@@ -329,7 +333,19 @@ class DeletedFileView(QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            success, message = self.controller.permanent_delete_file(filename, deleted_at)
+            # Get file_id from deleted files
+            deleted_files = self.controller.get_deleted_files()
+            file_id = None
+            for f in deleted_files:
+                if f['filename'] == filename and (deleted_at is None or f.get('deleted_at') == deleted_at):
+                    file_id = f.get('file_id')
+                    break
+            
+            if not file_id:
+                QMessageBox.warning(self, "Error", "Cannot delete file: Missing file ID")
+                return
+            
+            success, message = self.controller.permanent_delete_file(file_id)
             
             if success:
                 QMessageBox.information(self, "Success", message)
@@ -363,10 +379,15 @@ class DeletedFileView(QWidget):
             
             # Restore each file
             for file_data in files_data:
+                file_id = file_data.get('file_id')
                 filename = file_data['filename']
-                deleted_at = file_data.get('deleted_at')
                 
-                success, message = self.controller.restore_file(filename, deleted_at)
+                if not file_id:
+                    failed_count += 1
+                    error_messages.append(f"'{filename}': Missing file ID")
+                    continue
+                
+                success, message = self.controller.restore_file(file_id)
                 
                 if success:
                     success_count += 1
@@ -429,10 +450,15 @@ class DeletedFileView(QWidget):
                 
                 # Delete each file
                 for file_data in files_data:
+                    file_id = file_data.get('file_id')
                     filename = file_data['filename']
-                    deleted_at = file_data.get('deleted_at')
                     
-                    success, message = self.controller.permanent_delete_file(filename, deleted_at)
+                    if not file_id:
+                        failed_count += 1
+                        error_messages.append(f"'{filename}': Missing file ID")
+                        continue
+                    
+                    success, message = self.controller.permanent_delete_file(file_id)
                     
                     if success:
                         success_count += 1
@@ -653,21 +679,15 @@ class DeletedFileView(QWidget):
         def delete_file_operation(file_data):
             """Permanently delete a single file using the controller"""
             filename = file_data.get('filename')
-            deleted_at = file_data.get('deleted_at')
             file_id = file_data.get('file_id')
             
+            if not file_id:
+                return False, f"Missing file ID for '{filename}'"
+            
             try:
-                # Use controller to permanently delete file
-                if file_id:
-                    success, message = self.controller.permanent_delete_file(file_id=file_id)
-                    print(f"Permanently deleting file by file_id: {file_id} ({filename})")
-                else:
-                    success, message = self.controller.permanent_delete_file(
-                        filename=filename,
-                        deleted_at=deleted_at
-                    )
-                    print(f"Permanently deleting file by filename: {filename}")
-                
+                # Use controller to permanently delete file by file_id
+                success, message = self.controller.permanent_delete_file(file_id)
+                print(f"Permanently deleting file by file_id: {file_id} ({filename})")
                 return success, message
             
             except Exception as e:
@@ -708,20 +728,15 @@ class DeletedFileView(QWidget):
         def restore_file_operation(file_data):
             """Restore a single file using the controller"""
             filename = file_data.get('filename')
-            deleted_at = file_data.get('deleted_at')
             file_id = file_data.get('file_id')
             
+            if not file_id:
+                return False, f"Missing file ID for '{filename}'"
+            
             try:
-                # Use controller to restore file
-                if file_id:
-                    success, message = self.controller.restore_file(file_id=file_id)
-                    print(f"Restoring file by file_id: {file_id} ({filename})")
-                else:
-                    success, message = self.controller.restore_file(
-                        filename=filename,
-                        deleted_at=deleted_at
-                    )
-                    print(f"Restoring file by filename: {filename}")
+                # Use controller to restore file by file_id
+                success, message = self.controller.restore_file(file_id)
+                print(f"Restoring file by file_id: {file_id} ({filename})")
                 
                 if success:
                     # Emit signal for each restored file

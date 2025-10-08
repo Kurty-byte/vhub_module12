@@ -358,7 +358,7 @@ class UploadedFilesView(QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # Get full file data before deletion
+            # Get full file data before deletion (need file_id)
             files_data = self.controller.get_files()
             file_data = None
             for f in files_data:
@@ -366,12 +366,16 @@ class UploadedFilesView(QWidget):
                     file_data = f
                     break
             
-            success, message = self.controller.delete_file(filename)
+            if not file_data or not file_data.get('file_id'):
+                QMessageBox.warning(self, "Error", "Cannot delete file: Missing file ID")
+                return
+            
+            success, message = self.controller.delete_file(file_data['file_id'])
             
             if success:
                 QMessageBox.information(self, "Success", message)
-                # Emit signal to notify parent with full file data (or at least filename)
-                self.file_deleted.emit(file_data if file_data else {'filename': filename})
+                # Emit signal to notify parent with full file data
+                self.file_deleted.emit(file_data)
                 # Refresh the table
                 self.load_uploaded_files()
             else:

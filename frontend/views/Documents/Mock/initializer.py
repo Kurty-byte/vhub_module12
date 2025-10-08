@@ -32,7 +32,7 @@ def get_default_collections():
         {
             "id": 1,
             "name": "Syllabus",
-            "icon": "document.png",
+            "icon": "folder1.png",
             "description": "Course syllabi and curriculum documents",
             "files": [],
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -41,7 +41,7 @@ def get_default_collections():
         {
             "id": 2,
             "name": "Memo",
-            "icon": "document.png",
+            "icon": "folder1.png",
             "description": "Official memorandums and announcements",
             "files": [],
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -50,7 +50,7 @@ def get_default_collections():
         {
             "id": 3,
             "name": "Forms",
-            "icon": "folder.png",
+            "icon": "folder1.png",
             "description": "Administrative forms and templates",
             "files": [],
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -59,7 +59,7 @@ def get_default_collections():
         {
             "id": 4,
             "name": "Others",
-            "icon": "folder-open.png",
+            "icon": "folder1.png",
             "description": "Miscellaneous documents and files",
             "files": [],
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -73,11 +73,11 @@ def get_default_files_data():
     Get the default structure for files_data.json.
     
     Returns:
-        dict: Default files data structure
+        dict: Default files data structure with unified files array
     """
     return {
-        "uploaded_files": [],
-        "deleted_files": []
+        "files": [],
+        "next_file_id": 1
     }
 
 
