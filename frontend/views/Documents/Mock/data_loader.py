@@ -140,7 +140,16 @@ def get_collections():
               [{"id": int, "name": str, "icon": str, "files": [...]}, ...]
     """
     data = load_json_data('collections_data.json')
+    
+    # Handle both old format (direct array) and new format (with next_collection_id)
+    if isinstance(data, list):
+        # Old format: data is directly the collections array
+        print("Warning: Old collections format detected (direct array). Consider migrating to new format.")
+        return data
+    
+    # New format: data is a dict with 'collections' and 'next_collection_id'
     collections = data.get('collections', [])
+    
     # Ensure it's a list
     if not isinstance(collections, list):
         print("Warning: collections is not a list, returning empty list")

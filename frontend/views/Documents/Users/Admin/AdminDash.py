@@ -40,7 +40,7 @@ class AdminDash(QWidget):
         self.controller = DocumentController(username, roles, primary_role, token)
 
         # Track collection widgets for efficient updates
-        self.collection_cards = {}  # {'collection_name': QFrame widget}
+        self.collection_cards = {}  # {collection_id: QFrame widget} - Keyed by ID for consistency
         self.collections_layout = None  # Reference to the layout
         self.selected_collection = None  # Track currently selected collection
         
@@ -170,16 +170,19 @@ class AdminDash(QWidget):
         # Load collections using controller and track them
         collections_data = self.controller.get_collections()
         for collection_data in collections_data:
+            collection_id = collection_data.get('id')
+            collection_name = collection_data['name']
             file_count = len(collection_data.get('files', []))  # Count files in collection
             collection = self.create_collection_card(
-                collection_data['name'], 
+                collection_name, 
                 collection_data.get('icon', 'folder1.png'),
-                file_count=file_count
+                file_count=file_count,
+                collection_id=collection_id  # Pass collection_id to card
             )
-            # Set up single click and double click handlers
-            collection.mousePressEvent = self.make_collection_single_click_handler(collection_data['name'], collection)
-            collection.mouseDoubleClickEvent = self.make_collection_double_click_handler(collection_data['name'])
-            self.collection_cards[collection_data['name']] = collection  # Track widget
+            # Set up single click and double click handlers (now using collection_id)
+            collection.mousePressEvent = self.make_collection_single_click_handler(collection_id, collection)
+            collection.mouseDoubleClickEvent = self.make_collection_double_click_handler(collection_id)
+            self.collection_cards[collection_id] = collection  # Track widget by ID
             self.collections_layout.addWidget(collection)
         
         self.collections_layout.addStretch()
@@ -316,7 +319,7 @@ class AdminDash(QWidget):
         # Set the main layout for this widget
         self.dashboard_widget.setLayout(main_layout)
 
-    def create_collection_card(self, name, icon_filename="folder1.png", file_count=0):
+    def create_collection_card(self, name, icon_filename="folder1.png", file_count=0, collection_id=None):
         """
         Creates a single collection card widget
         
@@ -324,12 +327,17 @@ class AdminDash(QWidget):
             name (str): Display name for the collection
             icon_filename (str): Icon filename from Assets folder (default: "folder.png")
             file_count (int): Number of files in the collection
+            collection_id (int): Unique collection ID for identification
             
         Returns:
             QFrame: A frame containing the collection card UI
         """
         card = QFrame()
         card.setObjectName("collection_card")  # Set object name for targeted styling
+        # Store collection_id in the widget for later retrieval
+        if collection_id is not None:
+            card.setProperty("collection_id", collection_id)
+            card.setProperty("collection_name", name)  # Also store name for display
         card.setFrameShape(QFrame.Shape.Box)
         card.setFixedSize(90, 90)
         card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -486,10 +494,11 @@ class AdminDash(QWidget):
             self.stack.setCurrentWidget(deleted_file_view)
         return handler
     
-    def make_collection_single_click_handler(self, name, card_widget):
+    def make_collection_single_click_handler(self, collection_id, card_widget):
         """Handle single click on collection - highlight/select it"""
         def handler(event):
-            print(f"Collection selected: {name}")
+            collection_name = card_widget.property("collection_name")
+            print(f"Collection selected: {collection_name} (ID: {collection_id})")
             # Clear previous selection - restore original green styling
             if self.selected_collection and self.selected_collection != card_widget:
                 self.selected_collection.setStyleSheet("""
@@ -519,17 +528,23 @@ class AdminDash(QWidget):
             self.selected_collection = card_widget
         return handler
     
-    def make_collection_double_click_handler(self, name):
+    def make_collection_double_click_handler(self, collection_id):
         """Handle double click on collection - open it"""
         def handler(event):
-            print(f"Collection opened: {name}")
+            # Get collection name from ID for display
+            collection_name = self.controller._get_collection_name_by_id(collection_id)
+            if not collection_name:
+                print(f"Error: Collection ID {collection_id} not found")
+                return
+                
+            print(f"Collection opened: {collection_name} (ID: {collection_id})")
             from ...Shared.collection_view import CollectionView
             collection_view = CollectionView(
                 self.username,
                 self.roles,
                 self.primary_role,
                 self.token,
-                collection_name=name,
+                collection_name=collection_name,  # Still pass name for now (collection_view needs refactoring too)
                 stack=self.stack)
 
             # Connect all signals from collection view
@@ -563,19 +578,16 @@ class AdminDash(QWidget):
             )
             return
         
-        # Find the collection name from the selected widget
-        collection_name = None
-        for name, widget in self.collection_cards.items():
-            if widget == self.selected_collection:
-                collection_name = name
-                break
+        # Get the collection ID from the selected widget
+        collection_id = self.selected_collection.property("collection_id")
+        collection_name = self.selected_collection.property("collection_name")
         
-        if not collection_name:
+        if collection_id is None or not collection_name:
             QMessageBox.warning(self, "Error", "Could not identify the selected collection.")
             return
         
         # Check if collection is empty before showing confirmation
-        is_empty, file_count = self.controller.is_collection_empty(collection_name)
+        is_empty, file_count = self.controller.is_collection_empty(collection_id)
         
         if file_count == -1:
             QMessageBox.warning(self, "Error", f"Collection '{collection_name}' not found.")
@@ -602,7 +614,7 @@ class AdminDash(QWidget):
         
         if reply == QMessageBox.StandardButton.Yes:
             # Delete collection using controller
-            success, message = self.controller.delete_collection(collection_name)
+            success, message = self.controller.delete_collection(collection_id)
             
             if success:
                 QMessageBox.information(self, "Success", message)
@@ -611,13 +623,13 @@ class AdminDash(QWidget):
                 self.collections_layout.removeWidget(self.selected_collection)
                 self.selected_collection.deleteLater()  # Schedule for deletion
                 
-                # Remove from tracking dictionary
-                del self.collection_cards[collection_name]
+                # Remove from tracking dictionary (using ID as key)
+                del self.collection_cards[collection_id]
                 
                 # Clear selection
                 self.selected_collection = None
                 
-                print(f"Collection '{collection_name}' deleted successfully")
+                print(f"Collection '{collection_name}' (ID: {collection_id}) deleted successfully")
             else:
                 QMessageBox.critical(self, "Error", f"Failed to delete collection: {message}")
     
@@ -633,15 +645,17 @@ class AdminDash(QWidget):
         """Handle collection created event - incremental update"""
         print(f"Collection created: {collection_data}")
         
+        collection_id = collection_data.get('id')
         collection_name = collection_data.get('name')
-        if not collection_name:
-            # Fallback to full refresh if name not provided
+        
+        if collection_id is None or not collection_name:
+            # Fallback to full refresh if ID or name not provided
             self.refresh_collections()
             return
         
         # Check if collection already exists (avoid duplicates)
-        if collection_name in self.collection_cards:
-            print(f"Collection '{collection_name}' already exists, skipping.")
+        if collection_id in self.collection_cards:
+            print(f"Collection '{collection_name}' (ID: {collection_id}) already exists, skipping.")
             return
 
         # Add single collection instead of full refresh
@@ -649,17 +663,18 @@ class AdminDash(QWidget):
         card = self.create_collection_card(
             collection_name, 
             collection_data.get('icon', 'folder1.png'),
-            file_count=file_count
+            file_count=file_count,
+            collection_id=collection_id
         )
         # Set up single click and double click handlers
-        card.mousePressEvent = self.make_collection_single_click_handler(collection_name, card)
-        card.mouseDoubleClickEvent = self.make_collection_double_click_handler(collection_name)
-        self.collection_cards[collection_name] = card
+        card.mousePressEvent = self.make_collection_single_click_handler(collection_id, card)
+        card.mouseDoubleClickEvent = self.make_collection_double_click_handler(collection_id)
+        self.collection_cards[collection_id] = card
         
         # Insert before the stretch (which is at the last position)
         insert_position = self.collections_layout.count() - 1
         self.collections_layout.insertWidget(insert_position, card)
-        print(f"Added new collection to UI: {collection_name}")
+        print(f"Added new collection to UI: {collection_name} (ID: {collection_id})")
     
     def on_file_uploaded(self, file_data):
         """Handle file uploaded event - incremental update"""
@@ -715,15 +730,14 @@ class AdminDash(QWidget):
         
         # Update collection file count if file was added to a collection
         print(f"DEBUG: file_data keys: {file_data.keys()}")
-        print(f"DEBUG: collection_name = {file_data.get('collection_name')}")
         print(f"DEBUG: collection_id = {file_data.get('collection_id')}")
 
-        collection_name = file_data.get('collection_name')
-        if collection_name:
-            print(f"DEBUG: Updating count for collection: {collection_name}")
-            self.update_collection_file_count(collection_name)
+        collection_id = file_data.get('collection_id')
+        if collection_id is not None:
+            print(f"DEBUG: Updating count for collection ID: {collection_id}")
+            self.update_collection_file_count(collection_id)
         else:
-            print(f"DEBUG: No collection_name found in file_data")
+            print(f"DEBUG: No collection_id found in file_data")
     
     def refresh_collections(self):
         """Efficiently refresh the collections grid with incremental updates"""
@@ -732,33 +746,41 @@ class AdminDash(QWidget):
         
         # Get fresh data from controller
         collections_data = self.controller.get_collections()
-        fresh_collection_names = {col['name'] for col in collections_data}
-        current_collection_names = set(self.collection_cards.keys())
+        fresh_collection_ids = {col['id'] for col in collections_data}
+        current_collection_ids = set(self.collection_cards.keys())
         
-        # Identify changes
-        removed_collections = current_collection_names - fresh_collection_names
-        new_collections = [col for col in collections_data if col['name'] not in current_collection_names]
+        # Identify changes (by ID)
+        removed_collection_ids = current_collection_ids - fresh_collection_ids
+        new_collections = [col for col in collections_data if col['id'] not in current_collection_ids]
         
         # Remove deleted collections
-        for removed_name in removed_collections:
-            widget = self.collection_cards.pop(removed_name)
+        for removed_id in removed_collection_ids:
+            widget = self.collection_cards.pop(removed_id)
+            removed_name = widget.property("collection_name")
             self.collections_layout.removeWidget(widget)
             widget.deleteLater()
-            print(f"Removed collection: {removed_name}")
+            print(f"Removed collection: {removed_name} (ID: {removed_id})")
         
         # Add new collections (insert before the stretch item)
         for new_collection_data in new_collections:
+            collection_id = new_collection_data['id']
+            collection_name = new_collection_data['name']
+            file_count = len(new_collection_data.get('files', []))
+            
             card = self.create_collection_card(
-                new_collection_data['name'], 
-                new_collection_data.get('icon', 'folder1.png')
+                collection_name, 
+                new_collection_data.get('icon', 'folder1.png'),
+                file_count=file_count,
+                collection_id=collection_id
             )
-            card.mousePressEvent = self.make_collection_click_handler(new_collection_data['name'])
-            self.collection_cards[new_collection_data['name']] = card
+            card.mousePressEvent = self.make_collection_single_click_handler(collection_id, card)
+            card.mouseDoubleClickEvent = self.make_collection_double_click_handler(collection_id)
+            self.collection_cards[collection_id] = card
             
             # Insert before the stretch (which is at the last position)
             insert_position = self.collections_layout.count() - 1
             self.collections_layout.insertWidget(insert_position, card)
-            print(f"Added collection: {new_collection_data['name']}")
+            print(f"Added collection: {collection_name} (ID: {collection_id})")
     
     def refresh_files_table(self):
         """Efficiently refresh the uploaded files table with incremental updates"""
@@ -867,17 +889,18 @@ class AdminDash(QWidget):
         
         # Update collection file count if file was deleted from a collection
         print(f"DEBUG: file_data keys on delete: {file_data.keys()}")
-        print(f"DEBUG: collection_name = {file_data.get('collection_name')}")
-        print(f"DEBUG: category = {file_data.get('category')}")
+        print(f"DEBUG: collection_id = {file_data.get('collection_id')}")
         
-        # Try to get collection name from file_data
-        collection_name = file_data.get('collection_name') or file_data.get('category')
-        if collection_name:
-            print(f"DEBUG: Updating count for collection after deletion: {collection_name}")
-            self.update_collection_file_count(collection_name)
+        # The file's original collections are stored in _original_collections (array of IDs)
+        original_collections = file_data.get('_original_collections', [])
+        if original_collections:
+            print(f"DEBUG: Updating counts for collections (IDs): {original_collections}")
+            for collection_id in original_collections:
+                print(f"DEBUG: Updating count for collection ID after deletion: {collection_id}")
+                self.update_collection_file_count(collection_id)
         else:
-            print(f"DEBUG: No collection_name found in deleted file_data, updating all collections")
-            # If we can't determine which collection, refresh all collection counts
+            print(f"DEBUG: No original_collections found in deleted file_data, updating all collections")
+            # If we can't determine which collections, refresh all collection counts
             self.refresh_all_collection_counts()
     
     def on_file_restored(self, file_data):
@@ -889,22 +912,18 @@ class AdminDash(QWidget):
         print(f"DEBUG: file_data keys on restore: {file_data.keys()}")
         print(f"DEBUG: _original_collections = {file_data.get('_original_collections')}")
         
-        # Check for original collections (stored during deletion)
+        # Check for original collections (stored during deletion as collection IDs)
         original_collections = file_data.get('_original_collections', [])
         if original_collections:
-            print(f"DEBUG: Updating counts for restored collections: {original_collections}")
-            for collection_name in original_collections:
-                self.update_collection_file_count(collection_name)
+            print(f"DEBUG: Updating counts for restored collections (IDs): {original_collections}")
+            # _original_collections stores collection IDs (integers)
+            # Now that update_collection_file_count uses IDs, we can pass them directly
+            for collection_id in original_collections:
+                print(f"DEBUG: Updating count for collection ID: {collection_id}")
+                self.update_collection_file_count(collection_id)
         else:
-            # Fallback: check for single collection name
-            collection_name = file_data.get('collection_name') or file_data.get('category')
-            if collection_name:
-                print(f"DEBUG: Updating count for single collection: {collection_name}")
-                self.update_collection_file_count(collection_name)
-            else:
-                print(f"DEBUG: No collection info found, refreshing all collection counts")
-                # If we can't determine which collections, refresh all
-                self.refresh_all_collection_counts()
+            print(f"DEBUG: No original collections found, refreshing all collection counts")
+            self.refresh_all_collection_counts()
     
     def auto_cleanup_recycle_bin(self):
         """Automatically cleanup old files from recycle bin on startup"""
@@ -984,35 +1003,36 @@ class AdminDash(QWidget):
         }
         return approval_map.get(approval, '⚪ Unknown')
     
-    def update_collection_file_count(self, collection_name):
+    def update_collection_file_count(self, collection_id):
         """
         Update the file count indicator on a specific collection card
         
         Args:
-            collection_name (str): Name of the collection to update
+            collection_id (int): ID of the collection to update
         """
-        if collection_name not in self.collection_cards:
-            print(f"Collection '{collection_name}' not found in cache")
+        if collection_id not in self.collection_cards:
+            print(f"Collection ID {collection_id} not found in cache")
             return
         
-        # Get fresh data from controller
-        collections_data = self.controller.get_collections()
-        collection_data = next((c for c in collections_data if c['name'] == collection_name), None)
+        # Get collection data using ID
+        collection_data = self.controller._get_collection_by_id(collection_id)
         
         if not collection_data:
-            print(f"Collection '{collection_name}' not found in data")
+            print(f"Collection ID {collection_id} not found in data")
             return
         
+        collection_name = collection_data.get('name', f'ID:{collection_id}')
+        
         # Find the count label in the card widget
-        card = self.collection_cards[collection_name]
+        card = self.collection_cards[collection_id]
         count_label = card.findChild(QLabel, "file_count_label")
         
         if count_label:
             file_count = len(collection_data.get('files', []))
             count_label.setText(f"Files: {file_count}")
-            print(f"Updated file count for '{collection_name}': {file_count}")
+            print(f"Updated file count for '{collection_name}' (ID: {collection_id}): {file_count}")
         else:
-            print(f"Count label not found for '{collection_name}'")
+            print(f"Count label not found for '{collection_name}' (ID: {collection_id})")
     
     def refresh_all_collection_counts(self):
         """
@@ -1025,17 +1045,19 @@ class AdminDash(QWidget):
         # Get fresh data from controller
         collections_data = self.controller.get_collections()
         
-        # Update each collection card
+        # Update each collection card using collection ID
         for collection_data in collections_data:
+            collection_id = collection_data.get('id')
             collection_name = collection_data.get('name')
-            if collection_name and collection_name in self.collection_cards:
-                card = self.collection_cards[collection_name]
+            
+            if collection_id is not None and collection_id in self.collection_cards:
+                card = self.collection_cards[collection_id]
                 count_label = card.findChild(QLabel, "file_count_label")
                 
                 if count_label:
                     file_count = len(collection_data.get('files', []))
                     count_label.setText(f"Files: {file_count}")
-                    print(f"  - Updated '{collection_name}': {file_count} files")
+                    print(f"  - Updated '{collection_name}' (ID: {collection_id}): {file_count} files")
         
         print("All collection counts refreshed.")
         

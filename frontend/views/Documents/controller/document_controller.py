@@ -243,13 +243,14 @@ class DocumentController:
                 # CRITICAL FIX: Restore file back to its original collections
                 if original_collections:
                     restored_count = 0
-                    for collection_name in original_collections:
-                        success, msg = self.add_file_to_collection(collection_name, file_to_restore)
+                    for collection_id in original_collections:
+                        collection_name = self._get_collection_name_by_id(collection_id)
+                        success, msg = self.add_file_to_collection(collection_id, file_to_restore)
                         if success:
                             restored_count += 1
-                            print(f"✓ Restored '{restored_filename}' (ID: {restored_file_id}) to collection '{collection_name}'")
+                            print(f"✓ Restored '{restored_filename}' (ID: {restored_file_id}) to collection '{collection_name}' (ID: {collection_id})")
                         else:
-                            print(f"⚠ Warning: Could not restore to '{collection_name}': {msg}")
+                            print(f"⚠ Warning: Could not restore to collection ID {collection_id}: {msg}")
                     
                     if restored_count > 0:
                         return True, f"File '{restored_filename}' (ID: {restored_file_id}) restored to {restored_count} collection(s)"
@@ -585,10 +586,14 @@ class DocumentController:
             if any(c['name'].lower() == name.lower() for c in collections):
                 return False, f"Collection '{name}' already exists", None
             
-            # Create new collection
-            new_id = max([c['id'] for c in collections], default=0) + 1
+            # Get next collection ID from counter (similar to file_id pattern)
+            next_collection_id = data.get('next_collection_id', 1)
+            collection_id = next_collection_id
+            data['next_collection_id'] = next_collection_id + 1
+            
+            # Create new collection with unique collection_id
             collection_data = {
-                'id': new_id,
+                'id': collection_id,  # Use the auto-incremented collection_id
                 'name': name,
                 'icon': icon,
                 'files': [],
@@ -602,17 +607,17 @@ class DocumentController:
             with open(collections_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
             
-            return True, f"Collection '{name}' created successfully", collection_data
+            return True, f"Collection '{name}' created successfully (ID: {collection_id})", collection_data
             
         except Exception as e:
             return False, f"Error creating collection: {str(e)}", None
     
-    def delete_collection(self, collection_name: str) -> Tuple[bool, str]:
+    def delete_collection(self, collection_id: int) -> Tuple[bool, str]:
         """
         Delete a collection if it's empty (contains no files).
         
         Args:
-            collection_name (str): Name of the collection to delete
+            collection_id (int): Unique collection ID (REQUIRED)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -624,24 +629,26 @@ class DocumentController:
             
             collections = data.get('collections', [])
             
-            # Find the collection and check if it's empty
+            # Find the collection by ID and check if it's empty
             collection_found = False
             collection_index = -1
+            collection_name = None
             file_count = 0
             
             for i, collection in enumerate(collections):
-                if collection['name'].lower() == collection_name.lower():
+                if collection.get('id') == collection_id:
                     collection_found = True
                     collection_index = i
+                    collection_name = collection.get('name')
                     file_count = len(collection.get('files', []))
                     break
             
             if not collection_found:
-                return False, f"Collection '{collection_name}' not found"
+                return False, f"Collection with ID {collection_id} not found"
             
             # Check if collection is empty
             if file_count > 0:
-                return False, (f"Cannot delete collection '{collection_name}' because it contains {file_count} file(s). "
+                return False, (f"Cannot delete collection '{collection_name}' (ID: {collection_id}) because it contains {file_count} file(s). "
                              f"Please remove all files from this collection before deleting it.")
             
             # Collection is empty, proceed with deletion
@@ -653,17 +660,17 @@ class DocumentController:
             with open(collections_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
             
-            return True, f"Collection '{collection_name}' deleted successfully"
+            return True, f"Collection '{collection_name}' (ID: {collection_id}) deleted successfully"
                 
         except Exception as e:
             return False, f"Error deleting collection: {str(e)}"
     
-    def is_collection_empty(self, collection_name: str) -> Tuple[bool, int]:
+    def is_collection_empty(self, collection_id: int) -> Tuple[bool, int]:
         """
         Check if a collection is empty (contains no files).
         
         Args:
-            collection_name (str): Name of the collection to check
+            collection_id (int): Unique collection ID (REQUIRED)
             
         Returns:
             tuple: (is_empty: bool, file_count: int)
@@ -677,7 +684,7 @@ class DocumentController:
             collections = data.get('collections', [])
             
             for collection in collections:
-                if collection['name'].lower() == collection_name.lower():
+                if collection.get('id') == collection_id:
                     file_count = len(collection.get('files', []))
                     return (file_count == 0, file_count)
             
@@ -688,12 +695,12 @@ class DocumentController:
             print(f"Error checking if collection is empty: {e}")
             return False, -1
     
-    def add_file_to_collection(self, collection_name: str, file_data: Dict) -> Tuple[bool, str]:
+    def add_file_to_collection(self, collection_id: int, file_data: Dict) -> Tuple[bool, str]:
         """
         Add a file to a collection.
         
         Args:
-            collection_name (str): Name of the collection
+            collection_id (int): Unique collection ID (REQUIRED)
             file_data (dict): File data to add
             
         Returns:
@@ -706,28 +713,29 @@ class DocumentController:
             
             collections = data.get('collections', [])
             
-            # Find the collection
+            # Find the collection by ID
             for collection in collections:
-                if collection['name'].lower() == collection_name.lower():
+                if collection.get('id') == collection_id:
+                    collection_name = collection.get('name')
                     collection['files'].append(file_data)
                     
                     with open(collections_path, 'w', encoding='utf-8') as f:
                         json.dump(data, f, indent=2)
                     
-                    return True, f"File added to collection '{collection_name}'"
+                    return True, f"File added to collection '{collection_name}' (ID: {collection_id})"
             
-            return False, f"Collection '{collection_name}' not found"
+            return False, f"Collection with ID {collection_id} not found"
             
         except Exception as e:
             return False, f"Error adding file to collection: {str(e)}"
     
-    def remove_file_from_collection(self, collection_name: str, filename: str) -> Tuple[bool, str]:
+    def remove_file_from_collection(self, collection_id: int, file_id: int) -> Tuple[bool, str]:
         """
         Remove a file from a collection.
         
         Args:
-            collection_name (str): Name of the collection
-            filename (str): Name of the file to remove
+            collection_id (int): Unique collection ID (REQUIRED)
+            file_id (int): Unique file ID (REQUIRED)
             
         Returns:
             tuple: (success: bool, message: str)
@@ -739,24 +747,26 @@ class DocumentController:
             
             collections = data.get('collections', [])
             
-            # Find the collection
+            # Find the collection by ID
             for collection in collections:
-                if collection['name'].lower() == collection_name.lower():
+                if collection.get('id') == collection_id:
+                    collection_name = collection.get('name')
                     files = collection.get('files', [])
                     
-                    # Remove the file
+                    # Remove the file by file_id
                     for i, file_data in enumerate(files):
-                        if file_data['filename'] == filename:
+                        if file_data.get('file_id') == file_id:
+                            filename = file_data.get('filename')
                             files.pop(i)
                             
                             with open(collections_path, 'w', encoding='utf-8') as f:
                                 json.dump(data, f, indent=2)
                             
-                            return True, f"File removed from collection '{collection_name}'"
+                            return True, f"File '{filename}' (ID: {file_id}) removed from collection '{collection_name}' (ID: {collection_id})"
                     
-                    return False, f"File '{filename}' not found in collection"
+                    return False, f"File with ID {file_id} not found in collection '{collection_name}'"
             
-            return False, f"Collection '{collection_name}' not found"
+            return False, f"Collection with ID {collection_id} not found"
             
         except Exception as e:
             return False, f"Error removing file from collection: {str(e)}"
@@ -834,15 +844,15 @@ class DocumentController:
         except Exception as e:
             return False, f"Error removing file from collections: {str(e)}", 0
     
-    def _get_collections_containing_file_by_id(self, file_id: int) -> List[str]:
+    def _get_collections_containing_file_by_id(self, file_id: int) -> List[int]:
         """
-        Get list of collection names that contain a specific file by ID.
+        Get list of collection IDs that contain a specific file by ID.
         
         Args:
             file_id (int): Unique ID of the file to search for
             
         Returns:
-            list: List of collection names containing this file
+            list: List of collection IDs containing this file
         """
         try:
             collections_path = get_mock_data_path('collections_data.json')
@@ -850,16 +860,16 @@ class DocumentController:
                 data = json.load(f)
             
             collections = data.get('collections', [])
-            collection_names = []
+            collection_ids = []
             
             for collection in collections:
                 files = collection.get('files', [])
                 for file_data in files:
                     if file_data.get('file_id') == file_id:
-                        collection_names.append(collection.get('name'))
+                        collection_ids.append(collection.get('id'))
                         break
             
-            return collection_names
+            return collection_ids
         except Exception as e:
             print(f"Error getting collections containing file_id {file_id}: {str(e)}")
             return []
@@ -906,6 +916,45 @@ class DocumentController:
             
         except Exception as e:
             return False, f"Error removing file from collections: {str(e)}", 0
+    
+    # ==================== COLLECTION HELPER METHODS ====================
+    
+    def _get_collection_by_id(self, collection_id: int) -> Optional[Dict]:
+        """
+        Get full collection data by ID.
+        
+        Args:
+            collection_id (int): Collection ID
+            
+        Returns:
+            dict: Collection data or None if not found
+        """
+        try:
+            collections_path = get_mock_data_path('collections_data.json')
+            with open(collections_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            collections = data.get('collections', [])
+            for collection in collections:
+                if collection.get('id') == collection_id:
+                    return collection
+            return None
+        except Exception as e:
+            print(f"Error getting collection by ID {collection_id}: {str(e)}")
+            return None
+    
+    def _get_collection_name_by_id(self, collection_id: int) -> Optional[str]:
+        """
+        Get collection name from ID.
+        
+        Args:
+            collection_id (int): Collection ID
+            
+        Returns:
+            str: Collection name or None if not found
+        """
+        collection = self._get_collection_by_id(collection_id)
+        return collection.get('name') if collection else None
     
     # ==================== UTILITY METHODS ====================
     

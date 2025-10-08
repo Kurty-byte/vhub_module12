@@ -23,49 +23,52 @@ def get_mock_data_directory():
 
 def get_default_collections():
     """
-    Get the default collections to be created on initialization.
+    Get the default collections structure to be created on initialization.
     
     Returns:
-        list: List of default collection dictionaries
+        dict: Dictionary with collections array and next_collection_id counter
     """
-    return [
-        {
-            "id": 1,
-            "name": "Syllabus",
-            "icon": "folder1.png",
-            "description": "Course syllabi and curriculum documents",
-            "files": [],
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "created_by": "system"
-        },
-        {
-            "id": 2,
-            "name": "Memo",
-            "icon": "folder1.png",
-            "description": "Official memorandums and announcements",
-            "files": [],
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "created_by": "system"
-        },
-        {
-            "id": 3,
-            "name": "Forms",
-            "icon": "folder1.png",
-            "description": "Administrative forms and templates",
-            "files": [],
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "created_by": "system"
-        },
-        {
-            "id": 4,
-            "name": "Others",
-            "icon": "folder1.png",
-            "description": "Miscellaneous documents and files",
-            "files": [],
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "created_by": "system"
-        }
-    ]
+    return {
+        "collections": [
+            {
+                "id": 1,
+                "name": "Syllabus",
+                "icon": "folder1.png",
+                "description": "Course syllabi and curriculum documents",
+                "files": [],
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "created_by": "system"
+            },
+            {
+                "id": 2,
+                "name": "Memo",
+                "icon": "folder1.png",
+                "description": "Official memorandums and announcements",
+                "files": [],
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "created_by": "system"
+            },
+            {
+                "id": 3,
+                "name": "Forms",
+                "icon": "folder1.png",
+                "description": "Administrative forms and templates",
+                "files": [],
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "created_by": "system"
+            },
+            {
+                "id": 4,
+                "name": "Others",
+                "icon": "folder1.png",
+                "description": "Miscellaneous documents and files",
+                "files": [],
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "created_by": "system"
+            }
+        ],
+        "next_collection_id": 5  # Next available collection ID (4 default collections created)
+    }
 
 
 def get_default_files_data():
@@ -149,8 +152,8 @@ def initialize_collections_data():
         print(f"  collections_data.json already exists")
         return True
     
-    collections = get_default_collections()
-    data = {"collections": collections}
+    # get_default_collections() now returns the complete structure with collections and next_collection_id
+    data = get_default_collections()
     return create_json_file(filepath, data)
 
 
