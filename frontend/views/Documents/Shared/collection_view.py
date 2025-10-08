@@ -7,6 +7,7 @@ from ..controller.document_controller import DocumentController
 from ..Mock.data_loader import get_collection_by_name
 from ..utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
 from ..utils.bulk_operations import execute_bulk_operation, get_selected_files_from_table
+from ..widgets.empty_state import EmptyStateWidget
 
 class CollectionView(QWidget):
     file_accepted = pyqtSignal(str)
@@ -122,24 +123,55 @@ class CollectionView(QWidget):
         self.table.itemClicked.connect(self.handle_item_clicked)
         self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
+        # Create container for table and empty state
+        self.table_container = QWidget()
+        self.table_container_layout = QVBoxLayout(self.table_container)
+        self.table_container_layout.setContentsMargins(0, 0, 0, 0)
+
         # Load collection data from JSON
         collection_data = get_collection_by_name(collection_name)
         if collection_data:
             files_data = collection_data.get('files', [])
-            for idx, file_data in enumerate(files_data):
-                self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
-                # Track file data in cache (including file_id for deletion)
-                self.file_data_cache[file_data['filename']] = {
-                    'time': file_data['time'],
-                    'extension': file_data['extension'],
-                    'row_index': idx,
-                    'file_id': file_data.get('file_id'),  # Store file_id for bulk operations
-                    'timestamp': file_data.get('timestamp')  # Store timestamp as fallback
-                }
+            
+            # Show empty state or populate table
+            if len(files_data) == 0:
+                # Show empty state
+                self.empty_state = EmptyStateWidget(
+                    icon_name="folder-open.png",
+                    title="No Files in This Collection",
+                    message=f"Add files to the '{collection_name}' collection to organize your documents.",
+                    action_text="Add File"
+                )
+                self.empty_state.action_clicked.connect(self.handle_add_file)
+                self.table_container_layout.addWidget(self.empty_state)
+                self.table.setVisible(False)
+            else:
+                # Populate table
+                for idx, file_data in enumerate(files_data):
+                    self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
+                    # Track file data in cache (including file_id for deletion)
+                    self.file_data_cache[file_data['filename']] = {
+                        'time': file_data['time'],
+                        'extension': file_data['extension'],
+                        'row_index': idx,
+                        'file_id': file_data.get('file_id'),  # Store file_id for bulk operations
+                        'timestamp': file_data.get('timestamp')  # Store timestamp as fallback
+                    }
+                self.table.setVisible(True)
         else:
             # Fallback if collection not found
             print(f"Warning: Collection '{collection_name}' not found in JSON data")
-        main_layout.addWidget(self.table)
+            self.error_state = EmptyStateWidget(
+                icon_name="folder.png",
+                title="Collection Not Found",
+                message=f"The collection '{collection_name}' could not be loaded.",
+                action_text=None
+            )
+            self.table_container_layout.addWidget(self.error_state)
+            self.table.setVisible(False)
+        
+        self.table_container_layout.addWidget(self.table)
+        main_layout.addWidget(self.table_container)
 
         # Floating Add Button (bottom-right corner)
         self.floating_add_btn = create_floating_add_button(callback=self.handle_add_file)
@@ -446,6 +478,31 @@ class CollectionView(QWidget):
             return
         
         files_data = collection_data.get('files', [])
+        
+        # Handle empty state
+        if len(files_data) == 0:
+            self.table.setVisible(False)
+            if not hasattr(self, 'empty_state'):
+                self.empty_state = EmptyStateWidget(
+                    icon_name="folder-open.png",
+                    title="No Files in This Collection",
+                    message=f"Add files to the '{self.collection_name}' collection to organize your documents.",
+                    action_text="Add File"
+                )
+                self.empty_state.action_clicked.connect(self.handle_add_file)
+                self.table_container_layout.insertWidget(0, self.empty_state)
+            else:
+                self.empty_state.setVisible(True)
+            
+            # Clear cache when empty
+            self.file_data_cache.clear()
+            return
+        else:
+            # Hide empty state and show table
+            if hasattr(self, 'empty_state'):
+                self.empty_state.setVisible(False)
+            self.table.setVisible(True)
+        
         fresh_files = {f['filename']: f for f in files_data}
         
         current_filenames = set(self.file_data_cache.keys())

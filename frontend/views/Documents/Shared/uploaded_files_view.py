@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from ..controller.document_controller import DocumentController
 from ..utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
 from ..utils.bulk_operations import execute_bulk_operation
+from ..widgets.empty_state import EmptyStateWidget
 
 class UploadedFilesView(QWidget):
     """
@@ -121,9 +122,16 @@ class UploadedFilesView(QWidget):
         self.table.itemClicked.connect(self.handle_item_clicked)
         self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
+        # Create container for table and empty state
+        self.table_container = QWidget()
+        self.table_container_layout = QVBoxLayout(self.table_container)
+        self.table_container_layout.setContentsMargins(0, 0, 0, 0)
+
         # Load uploaded files data using controller
         self.load_uploaded_files()
-        main_layout.addWidget(self.table)
+        
+        self.table_container_layout.addWidget(self.table)
+        main_layout.addWidget(self.table_container)
 
         # Floating Add Button (bottom-right corner)
         self.floating_add_btn = create_floating_add_button(callback=self.handle_add_file)
@@ -228,6 +236,28 @@ class UploadedFilesView(QWidget):
         
         # Get uploaded files from controller
         files_data = self.controller.get_files()
+        
+        # Handle empty state
+        if len(files_data) == 0:
+            self.table.setVisible(False)
+            if not hasattr(self, 'empty_state'):
+                self.empty_state = EmptyStateWidget(
+                    icon_name="document.png",
+                    title="No Uploaded Files",
+                    message="Upload files to see them listed here.",
+                    action_text="Upload File"
+                )
+                self.empty_state.action_clicked.connect(self.handle_add_file)
+                self.table_container_layout.addWidget(self.empty_state)
+            else:
+                self.empty_state.setVisible(True)
+            return
+        else:
+            # Hide empty state and show table
+            if hasattr(self, 'empty_state'):
+                self.empty_state.setVisible(False)
+            self.table.setVisible(True)
+        
         for idx, file_data in enumerate(files_data):
             self.add_file_to_table(
                 file_data['filename'], 

@@ -8,6 +8,7 @@ from ...controller.document_controller import DocumentController
 from ...utils.icon_utils import create_menu_button, create_search_button, IconLoader
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtGui import QColor
+from ...widgets.empty_state import EmptyStateWidget
 
 from .DonutWidget import DonutChartWidget
 
@@ -231,29 +232,50 @@ class AdminDash(QWidget):
         self.files_model.rowsRemoved.connect(self._on_rows_removed)
         self.files_model.dataChanged.connect(self._on_data_changed)
         
+        # Create container for table and empty state
+        self.files_container = QWidget()
+        self.files_container_layout = QVBoxLayout(self.files_container)
+        self.files_container_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Load file data using controller
         files_data = self.controller.get_files()
 
-        # Populate and track files
-        for idx, file_data in enumerate(files_data):
-            status = file_data.get('status', 'available')
-            approval = file_data.get('approval_status', 'pending')
-            self.add_file_to_table(
-                file_data['filename'], 
-                file_data.get('uploaded_date', file_data.get('time', 'N/A')), 
-                file_data['extension'],
-                status,
-                approval
+        # Show empty state or populate table
+        if len(files_data) == 0:
+            # Show empty state
+            self.files_empty_state = EmptyStateWidget(
+                icon_name="document.png",
+                title="No Files Yet",
+                message="Upload your first file to get started with document management.",
+                action_text="Upload File"
             )
-            # Track file data in cache
-            self.file_data_cache[file_data['filename']] = {
-                'uploaded_date': file_data.get('uploaded_date', file_data.get('time', 'N/A')),
-                'extension': file_data['extension'],
-                'status': status,
-                'approval_status': approval,
-                'row_index': idx
-            }
-        files_layout.addWidget(self.files_table)
+            self.files_empty_state.action_clicked.connect(self.handle_add_file)
+            self.files_container_layout.addWidget(self.files_empty_state)
+            self.files_table.setVisible(False)
+        else:
+            # Populate and track files
+            for idx, file_data in enumerate(files_data):
+                status = file_data.get('status', 'available')
+                approval = file_data.get('approval_status', 'pending')
+                self.add_file_to_table(
+                    file_data['filename'], 
+                    file_data.get('uploaded_date', file_data.get('time', 'N/A')), 
+                    file_data['extension'],
+                    status,
+                    approval
+                )
+                # Track file data in cache
+                self.file_data_cache[file_data['filename']] = {
+                    'uploaded_date': file_data.get('uploaded_date', file_data.get('time', 'N/A')),
+                    'extension': file_data['extension'],
+                    'status': status,
+                    'approval_status': approval,
+                    'row_index': idx
+                }
+            self.files_table.setVisible(True)
+        
+        self.files_container_layout.addWidget(self.files_table)
+        files_layout.addWidget(self.files_container)
         
         # New button at bottom right
         new_btn = QPushButton("+ New")
@@ -787,6 +809,27 @@ class AdminDash(QWidget):
         # Get fresh data from controller
         files_data = self.controller.get_files()
         fresh_files = {f['filename']: f for f in files_data}
+        
+        # Handle empty state
+        if len(files_data) == 0:
+            self.files_table.setVisible(False)
+            if not hasattr(self, 'files_empty_state') or not self.files_empty_state:
+                self.files_empty_state = EmptyStateWidget(
+                    icon_name="document.png",
+                    title="No Files Yet",
+                    message="Upload your first file to get started with document management.",
+                    action_text="Upload File"
+                )
+                self.files_empty_state.action_clicked.connect(self.handle_add_file)
+                self.files_container_layout.addWidget(self.files_empty_state)
+            else:
+                self.files_empty_state.setVisible(True)
+            return
+        else:
+            # Hide empty state and show table
+            if hasattr(self, 'files_empty_state') and self.files_empty_state:
+                self.files_empty_state.setVisible(False)
+            self.files_table.setVisible(True)
         
         current_filenames = set(self.file_data_cache.keys())
         fresh_filenames = set(fresh_files.keys())

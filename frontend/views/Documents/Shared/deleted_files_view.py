@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from ..controller.document_controller import DocumentController
 from ..utils.icon_utils import create_back_button, create_search_button
 from ..utils.bulk_operations import execute_bulk_operation
+from ..widgets.empty_state import EmptyStateWidget
 
 class DeletedFileView(QWidget):
     file_restored = pyqtSignal(dict)  # Signal to notify parent of file restoration
@@ -152,9 +153,16 @@ class DeletedFileView(QWidget):
         self.table.itemClicked.connect(self.handle_item_clicked)
         self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
+        # Create container for table and empty state
+        self.table_container = QWidget()
+        self.table_container_layout = QVBoxLayout(self.table_container)
+        self.table_container_layout.setContentsMargins(0, 0, 0, 0)
+
         # Load deleted files data using controller
         self.load_deleted_files()
-        main_layout.addWidget(self.table)
+        
+        self.table_container_layout.addWidget(self.table)
+        main_layout.addWidget(self.table_container)
 
         self.setLayout(main_layout)
     
@@ -255,6 +263,27 @@ class DeletedFileView(QWidget):
         
         # Get deleted files from controller
         files_data = self.controller.get_deleted_files()
+        
+        # Handle empty state
+        if len(files_data) == 0:
+            self.table.setVisible(False)
+            if not hasattr(self, 'empty_state'):
+                self.empty_state = EmptyStateWidget(
+                    icon_name="folder-open.png",
+                    title="No Deleted Files",
+                    message="Files you delete will appear here and be automatically removed after 15 days.",
+                    action_text=None  # No action button for empty deleted files
+                )
+                self.table_container_layout.addWidget(self.empty_state)
+            else:
+                self.empty_state.setVisible(True)
+            return
+        else:
+            # Hide empty state and show table
+            if hasattr(self, 'empty_state'):
+                self.empty_state.setVisible(False)
+            self.table.setVisible(True)
+        
         for idx, file_data in enumerate(files_data):
             # Get file info with age calculation
             file_info = self.controller.get_recycle_bin_file_info(
