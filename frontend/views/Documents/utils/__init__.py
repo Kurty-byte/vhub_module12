@@ -13,6 +13,12 @@ from .role_utils import (
     is_student, 
     has_sub_role
 )
+from .bulk_operations import (
+    BulkOperationDialog,
+    BulkProgressDialog,
+    execute_bulk_operation,
+    get_selected_files_from_table
+)
 
 __all__ = [
     'IconLoader',
@@ -23,5 +29,9 @@ __all__ = [
     'is_faculty',
     'is_staff',
     'is_student',
-    'has_sub_role'
+    'has_sub_role',
+    'BulkOperationDialog',
+    'BulkProgressDialog',
+    'execute_bulk_operation',
+    'get_selected_files_from_table'
 ]

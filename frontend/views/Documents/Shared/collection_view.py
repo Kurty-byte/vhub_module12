@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from ..controller.document_controller import DocumentController
 from ..Mock.data_loader import get_collection_by_name
 from ..utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
+from ..utils.bulk_operations import execute_bulk_operation, get_selected_files_from_table
 
 class CollectionView(QWidget):
     file_accepted = pyqtSignal(str)
@@ -44,6 +45,23 @@ class CollectionView(QWidget):
         # Add File button
         add_file_btn = QPushButton("Add File")
         add_file_btn.clicked.connect(self.handle_add_file)
+        
+        # Bulk Delete button
+        bulk_delete_btn = QPushButton("Bulk Delete")
+        bulk_delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        bulk_delete_btn.clicked.connect(self.handle_bulk_delete)
 
         search_bar = QLineEdit()
         search_button = create_search_button(callback=lambda: print("Search button clicked"))
@@ -53,19 +71,25 @@ class CollectionView(QWidget):
         header_layout.addWidget(header)
         header_layout.addStretch()
         header_layout.addWidget(add_file_btn)
+        header_layout.addWidget(bulk_delete_btn)
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
         header_layout.addWidget(back_btn)
         main_layout.addLayout(header_layout)
 
-        # Table logic (same as AdminDash)
+        # Table logic with checkboxes for bulk selection
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Filename", "Time", "Extension", "Actions"])
+        self.table.setColumnCount(5)  # Added checkbox column
+        self.table.setHorizontalHeaderLabels(["☑", "Filename", "Time", "Extension", "Actions"])
+        
+        # Set column widths
+        self.table.setColumnWidth(0, 40)  # Checkbox column
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)  # Single selection only (use checkboxes for bulk)
         self.table.itemClicked.connect(self.handle_item_clicked)
         self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
@@ -75,11 +99,13 @@ class CollectionView(QWidget):
             files_data = collection_data.get('files', [])
             for idx, file_data in enumerate(files_data):
                 self.add_file_to_table(file_data['filename'], file_data['time'], file_data['extension'])
-                # Track file data in cache
+                # Track file data in cache (including file_id for deletion)
                 self.file_data_cache[file_data['filename']] = {
                     'time': file_data['time'],
                     'extension': file_data['extension'],
-                    'row_index': idx
+                    'row_index': idx,
+                    'file_id': file_data.get('file_id'),  # Store file_id for bulk operations
+                    'timestamp': file_data.get('timestamp')  # Store timestamp as fallback
                 }
         else:
             # Fallback if collection not found
@@ -128,21 +154,33 @@ class CollectionView(QWidget):
     def add_file_to_table(self, name, time, ext):
         row = self.table.rowCount()
         self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(name))
-        self.table.setItem(row, 1, QTableWidgetItem(time))
-        self.table.setItem(row, 2, QTableWidgetItem(ext))
+        
+        # Add checkbox in first column
+        checkbox_item = QTableWidgetItem()
+        checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+        self.table.setItem(row, 0, checkbox_item)
+        
+        # Add file data
+        self.table.setItem(row, 1, QTableWidgetItem(name))
+        self.table.setItem(row, 2, QTableWidgetItem(time))
+        self.table.setItem(row, 3, QTableWidgetItem(ext))
+        
+        # Add actions widget
         actions_widget = self.create_actions_widget(name)
-        self.table.setCellWidget(row, 3, actions_widget)
+        self.table.setCellWidget(row, 4, actions_widget)
 
     def handle_item_clicked(self, item):
-        if item.column() != 3:  # Not actions column
-            filename = self.table.item(item.row(), 0).text()
+        # Skip checkbox column (0) and actions column (4)
+        if item.column() != 0 and item.column() != 4:
+            filename = self.table.item(item.row(), 1).text()
             print(f"File row clicked: {filename}")
     
     def handle_item_double_clicked(self, item):
         """Handle table item double-click - show file details dialog"""
-        if item.column() != 3:  # Not actions column
-            filename = self.table.item(item.row(), 0).text()
+        # Skip checkbox column (0) and actions column (4)
+        if item.column() != 0 and item.column() != 4:
+            filename = self.table.item(item.row(), 1).text()
             self.show_file_details(filename)
     
     def show_file_details(self, filename):
@@ -226,6 +264,87 @@ class CollectionView(QWidget):
         else:
             print(f"Error: Collection '{self.collection_name}' not found")
     
+    def handle_bulk_delete(self):
+        """Handle bulk deletion of selected files from collection"""
+        # Get checked files from table
+        selected_files = self._get_checked_files()
+        
+        if not selected_files:
+            QMessageBox.warning(
+                self,
+                "No Files Selected",
+                "Please check at least one file to delete.\n\n"
+                "Tip: Use the checkboxes in the first column to select files."
+            )
+            return
+        
+        # Define the delete operation for a single file
+        def delete_file_operation(file_data):
+            """Delete a single file using the controller"""
+            filename = file_data.get('filename')
+            file_id = file_data.get('file_id')
+            timestamp = file_data.get('timestamp')
+            
+            try:
+                # Use controller to delete file (soft delete) - prefer file_id
+                if file_id:
+                    success, message = self.controller.delete_file(file_id=file_id)
+                    print(f"Deleting file by file_id: {file_id} ({filename})")
+                else:
+                    success, message = self.controller.delete_file(
+                        filename=filename,
+                        timestamp=timestamp
+                    )
+                    print(f"Deleting file by filename: {filename}")
+                
+                if success:
+                    # Emit signal for each deleted file
+                    file_data['collection_name'] = self.collection_name
+                    self.file_deleted.emit(file_data)
+                
+                return success, message
+            
+            except Exception as e:
+                print(f"Error deleting file: {e}")
+                return False, str(e)
+        
+        # Execute bulk operation with confirmation dialog
+        successful, failed, failed_items = execute_bulk_operation(
+            items=selected_files,
+            operation_func=delete_file_operation,
+            operation_name="Delete",
+            parent=self,
+            item_display_func=lambda item: f"{item['filename']} ({item['extension']})",
+            confirmation_message=f"Are you sure you want to delete {len(selected_files)} file(s) from '{self.collection_name}'?\n\n"
+                               "The files will be moved to the Recycle Bin and can be restored later."
+        )
+        
+        # Refresh the collection view after bulk deletion
+        if successful > 0:
+            self.refresh_collection_files()
+            print(f"Bulk delete completed: {successful} succeeded, {failed} failed")
+    
+    def _get_checked_files(self):
+        """Get list of checked files from table with full metadata"""
+        checked_files = []
+        
+        for row in range(self.table.rowCount()):
+            checkbox_item = self.table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                # Get filename from column 1
+                filename_item = self.table.item(row, 1)
+                if filename_item:
+                    filename = filename_item.text()
+                    
+                    # Get complete file data from cache
+                    if filename in self.file_data_cache:
+                        file_data = self.file_data_cache[filename].copy()
+                        file_data['filename'] = filename
+                        checked_files.append(file_data)
+                        print(f"Checked file: {filename} (file_id: {file_data.get('file_id')})")
+        
+        return checked_files
+    
     def on_file_uploaded(self, file_data):
         """Handle file uploaded event - incremental update"""
         print(f"File uploaded to collection: {file_data}")
@@ -239,15 +358,17 @@ class CollectionView(QWidget):
         
         # Check if file already exists
         if filename in self.file_data_cache:
-            # Update existing file data
+            # Update existing file data (accounting for checkbox column)
             row_idx = self.file_data_cache[filename]['row_index']
-            self.table.item(row_idx, 0).setText(file_data.get('filename', filename))
-            self.table.item(row_idx, 1).setText(file_data.get('time', ''))
-            self.table.item(row_idx, 2).setText(file_data.get('extension', ''))
+            self.table.item(row_idx, 1).setText(file_data.get('filename', filename))
+            self.table.item(row_idx, 2).setText(file_data.get('time', ''))
+            self.table.item(row_idx, 3).setText(file_data.get('extension', ''))
             
             # Update cache
             self.file_data_cache[filename]['time'] = file_data.get('time', '')
             self.file_data_cache[filename]['extension'] = file_data.get('extension', '')
+            self.file_data_cache[filename]['file_id'] = file_data.get('file_id')
+            self.file_data_cache[filename]['timestamp'] = file_data.get('timestamp')
             print(f"Updated existing file in collection UI: {filename}")
         else:
             # Add new file incrementally
@@ -261,7 +382,9 @@ class CollectionView(QWidget):
             self.file_data_cache[filename] = {
                 'time': file_data.get('time', ''),
                 'extension': file_data.get('extension', ''),
-                'row_index': self.table.rowCount() - 1
+                'row_index': self.table.rowCount() - 1,
+                'file_id': file_data.get('file_id'),
+                'timestamp': file_data.get('timestamp')
             }
             print(f"Added new file to collection UI: {filename}")
         
@@ -303,18 +426,20 @@ class CollectionView(QWidget):
             del self.file_data_cache[filename]
             print(f"Removed file from collection: {filename}")
         
-        # Update modified files
+        # Update modified files (accounting for checkbox column)
         for filename in modified_files:
             row_idx = self.file_data_cache[filename]['row_index']
             fresh = fresh_files[filename]
             
-            self.table.item(row_idx, 0).setText(fresh['filename'])
-            self.table.item(row_idx, 1).setText(fresh['time'])
-            self.table.item(row_idx, 2).setText(fresh['extension'])
+            self.table.item(row_idx, 1).setText(fresh['filename'])
+            self.table.item(row_idx, 2).setText(fresh['time'])
+            self.table.item(row_idx, 3).setText(fresh['extension'])
             
             # Update cache
             self.file_data_cache[filename]['time'] = fresh['time']
             self.file_data_cache[filename]['extension'] = fresh['extension']
+            self.file_data_cache[filename]['file_id'] = fresh.get('file_id')
+            self.file_data_cache[filename]['timestamp'] = fresh.get('timestamp')
             print(f"Updated file in collection: {filename}")
         
         # Add new files
@@ -322,11 +447,13 @@ class CollectionView(QWidget):
             fresh = fresh_files[filename]
             self.add_file_to_table(fresh['filename'], fresh['time'], fresh['extension'])
             
-            # Add to cache
+            # Add to cache with file_id and timestamp
             self.file_data_cache[filename] = {
                 'time': fresh['time'],
                 'extension': fresh['extension'],
-                'row_index': self.table.rowCount() - 1
+                'row_index': self.table.rowCount() - 1,
+                'file_id': fresh.get('file_id'),
+                'timestamp': fresh.get('timestamp')
             }
             print(f"Added file to collection: {filename}")
         
@@ -339,6 +466,9 @@ class CollectionView(QWidget):
     def _rebuild_file_indices(self):
         """Rebuild row indices in file_data_cache after removals"""
         for row_idx in range(self.table.rowCount()):
-            filename = self.table.item(row_idx, 0).text()
-            if filename in self.file_data_cache:
-                self.file_data_cache[filename]['row_index'] = row_idx
+            # Column 1 now contains filename (column 0 is checkbox)
+            filename_item = self.table.item(row_idx, 1)
+            if filename_item:
+                filename = filename_item.text()
+                if filename in self.file_data_cache:
+                    self.file_data_cache[filename]['row_index'] = row_idx
