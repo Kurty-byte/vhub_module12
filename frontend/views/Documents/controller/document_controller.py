@@ -599,8 +599,7 @@ class DocumentController:
     
     def delete_collection(self, collection_name: str) -> Tuple[bool, str]:
         """
-        Delete a collection and update files' collection reference to 'None'.
-        Files are not deleted, only their collection association is removed.
+        Delete a collection if it's empty (contains no files).
         
         Args:
             collection_name (str): Name of the collection to delete
@@ -615,52 +614,69 @@ class DocumentController:
             
             collections = data.get('collections', [])
             
-            # Find and remove the collection
+            # Find the collection and check if it's empty
             collection_found = False
+            collection_index = -1
+            file_count = 0
+            
             for i, collection in enumerate(collections):
                 if collection['name'].lower() == collection_name.lower():
-                    collections.pop(i)
                     collection_found = True
+                    collection_index = i
+                    file_count = len(collection.get('files', []))
                     break
             
-            if collection_found:
-                data['collections'] = collections
-                
-                with open(collections_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2)
-                
-                # Update files' collection field to 'None' if they belonged to this collection
-                files_path = get_mock_data_path('files_data.json')
-                try:
-                    with open(files_path, 'r', encoding='utf-8') as f:
-                        files_data = json.load(f)
-                    
-                    uploaded_files = files_data.get('uploaded_files', [])
-                    updated_count = 0
-                    
-                    for file_info in uploaded_files:
-                        if file_info.get('collection', '').lower() == collection_name.lower():
-                            file_info['collection'] = 'None'
-                            updated_count += 1
-                    
-                    files_data['uploaded_files'] = uploaded_files
-                    
-                    with open(files_path, 'w', encoding='utf-8') as f:
-                        json.dump(files_data, f, indent=2)
-                    
-                    msg = f"Collection '{collection_name}' deleted successfully"
-                    if updated_count > 0:
-                        msg += f". {updated_count} file(s) moved to uncategorized."
-                    
-                    return True, msg
-                except Exception as e:
-                    # Collection deleted but file update failed
-                    return True, f"Collection '{collection_name}' deleted, but file update encountered an issue: {str(e)}"
-            else:
+            if not collection_found:
                 return False, f"Collection '{collection_name}' not found"
+            
+            # Check if collection is empty
+            if file_count > 0:
+                return False, (f"Cannot delete collection '{collection_name}' because it contains {file_count} file(s). "
+                             f"Please remove all files from this collection before deleting it.")
+            
+            # Collection is empty, proceed with deletion
+            collections.pop(collection_index)
+            
+            # Save the updated collections data
+            data['collections'] = collections
+            
+            with open(collections_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            
+            return True, f"Collection '{collection_name}' deleted successfully"
                 
         except Exception as e:
             return False, f"Error deleting collection: {str(e)}"
+    
+    def is_collection_empty(self, collection_name: str) -> Tuple[bool, int]:
+        """
+        Check if a collection is empty (contains no files).
+        
+        Args:
+            collection_name (str): Name of the collection to check
+            
+        Returns:
+            tuple: (is_empty: bool, file_count: int)
+                   Returns (False, -1) if collection not found
+        """
+        try:
+            collections_path = get_mock_data_path('collections_data.json')
+            with open(collections_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            collections = data.get('collections', [])
+            
+            for collection in collections:
+                if collection['name'].lower() == collection_name.lower():
+                    file_count = len(collection.get('files', []))
+                    return (file_count == 0, file_count)
+            
+            # Collection not found
+            return False, -1
+            
+        except Exception as e:
+            print(f"Error checking if collection is empty: {e}")
+            return False, -1
     
     def add_file_to_collection(self, collection_name: str, file_data: Dict) -> Tuple[bool, str]:
         """

@@ -464,12 +464,28 @@ class AdminDash(QWidget):
             QMessageBox.warning(self, "Error", "Could not identify the selected collection.")
             return
         
-        # Confirmation dialog
+        # Check if collection is empty before showing confirmation
+        is_empty, file_count = self.controller.is_collection_empty(collection_name)
+        
+        if file_count == -1:
+            QMessageBox.warning(self, "Error", f"Collection '{collection_name}' not found.")
+            return
+        
+        if not is_empty:
+            QMessageBox.warning(
+                self,
+                "Cannot Delete Collection",
+                f"The collection '{collection_name}' contains {file_count} file(s).\n\n"
+                f"Please remove all files from this collection before deleting it.\n\n"
+                f"You can move files to another collection or delete them individually.",
+            )
+            return
+        
+        # Confirmation dialog (only shown if collection is empty)
         reply = QMessageBox.question(
             self,
             'Confirm Delete Collection',
-            f"Are you sure you want to delete the collection '{collection_name}'?\n\n"
-            f"All files in this collection will be moved to their respective categories.",
+            f"Are you sure you want to delete the empty collection '{collection_name}'?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
