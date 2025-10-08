@@ -1,146 +1,108 @@
-# Mock Data for Document Management System
+# Mock data for Documents (current)
 
-This folder contains mock data files used by the Document Management interface for development and testing purposes.
+This folder contains local JSON data used by the Documents UI during development. The files are created/seeded by `initializer.py` and read via `data_loader.py`. These files are intended as development mock data and are not tracked in git.
 
-## ⚠️ Important Note
+## Files and schemas
 
-The actual data files (`*.json`) are **NOT tracked by git** to prevent committing user-generated test data. 
+- `files_data.json`
 
-**Don't worry!** The application automatically creates these files with proper default structures on first run if they don't exist. Thanks to the robust error handling in `data_loader.py` and the new `initializer.py`, missing files are handled gracefully.
+  Top-level keys:
+  - `files`: array of file objects
+  - `next_file_id`: integer counter
 
-## 🚀 Auto-Initialization
+  File object fields (present in the current data):
 
-When you first navigate to the Documents section, the system automatically:
-1. **Creates JSON files** if they don't exist
-2. **Sets up default collections**: Syllabus, Memo, Forms, and Others
-3. **Initializes storage data** with default values
-4. **Logs the process** to the console for transparency
+  - `file_id` (int)
+  - `filename` (string)
+  - `time` (string) — human time like "05:22 pm"
+  - `extension` (string)
+  - `file_path` (string) — stored relative filename/path
+  - `category` (string)
+  - `collection` (string)
+  - `uploaded_date` (string) — formatted date
+  - `timestamp` (string) — ISO-like timestamp
+  - `uploader` (string)
+  - `role` (string)
+  - `is_deleted` (bool)
 
-**Default Collections Created:**
-- **Syllabus** - Course syllabi and curriculum documents
-- **Memo** - Official memorandums and announcements  
-- **Forms** - Administrative forms and templates
-- **Others** - Miscellaneous documents and files
+  Example (from current data):
 
-To manually initialize or reset data, run:
-```bash
-python test_initialization.py
-```
-or
-```bash
-cd frontend/views/Documents/Mock
-python initializer.py
-```
+  ```json
+  {
+    "file_id": 1,
+    "filename": "DICT Exam",
+    "time": "05:22 pm",
+    "extension": "pdf",
+    "file_path": "DICT Exam_20251008_172231.pdf",
+    "category": "None",
+    "collection": "None",
+    "uploaded_date": "10/08/2025",
+    "timestamp": "2025-10-08 17:22:31",
+    "uploader": "admin",
+    "role": "admin",
+    "is_deleted": false
+  }
+  ```
 
-## Files
+- `collections_data.json`
 
-### 1. `files_data.json`
-Contains mock data for uploaded files and deleted files.
+  Top-level keys:
+  - `collections`: array of collection objects
+  - `next_collection_id`: integer counter
 
-**Structure:**
-```json
-{
-  "uploaded_files": [
-    {
-      "filename": "string",
-      "time": "string",
-      "extension": "string"
-    }
-  ],
-  "deleted_files": [
-    {
-      "filename": "string",
-      "time": "string",
-      "extension": "string"
-    }
-  ]
-}
-```
+  Collection object fields (current):
+  - `id` (int)
+  - `name` (string)
+  - `icon` (string)
+  - `description` (string)
+  - `files` (array) — holds file objects or references
+  - `created_at` (string)
+  - `created_by` (string)
 
-### 2. `collections_data.json`
-Contains mock data for document collections and their associated files.
+  Example (from current data):
 
-**Structure:**
-```json
-{
-  "collections": [
-    {
-      "id": number,
-      "name": "string",
-      "icon": "string (emoji)",
-      "files": [
-        {
-          "filename": "string",
-          "time": "string",
-          "extension": "string"
-        }
-      ]
-    }
-  ]
-}
-```
+  ```json
+  {
+    "id": 1,
+    "name": "Syllabus",
+    "icon": "folder1.png",
+    "description": "Course syllabi and curriculum documents",
+    "files": [],
+    "created_at": "2025-10-08 17:22:06",
+    "created_by": "system"
+  }
+  ```
 
-### 3. `storage_data.json`
-Contains mock data for storage usage statistics.
+- `storage_data.json`
 
-**Structure:**
-```json
-{
-  "total_size_gb": number,
-  "used_size_gb": number,
-  "free_size_gb": number,
-  "usage_percentage": number
-}
-```
+  Current structure:
 
-## Usage
+  ```json
+  {
+    "total_size_gb": 100.0,
+    "used_size_gb": 0.0,
+    "free_size_gb": 100.0,
+    "usage_percentage": 0
+  }
+  ```
 
-The `data_loader.py` module provides convenient functions to load this data:
+## Utilities (from `data_loader.py`)
 
-```python
-from Mock.data_loader import (
-    get_uploaded_files,
-    get_deleted_files,
-    get_collections,
-    get_collection_by_name,
-    get_storage_data,
-    get_all_mock_data
-)
+Convenience functions used by the UI:
 
-# Load uploaded files
-files = get_uploaded_files()
+- `get_mock_data_path(filename)` — absolute path to a mock file
+- `load_json_data(filename)` — safe load with sensible defaults when a file is missing, empty, or invalid
+- `_get_default_structure(filename)` — returns default structures for files/collections/storage
+- `get_uploaded_files()`, `get_deleted_files()`, `get_collections()`, `get_collection_by_name()`, `get_storage_data()` — reader helpers used throughout the front end
 
-# Load a specific collection
-collection = get_collection_by_name("Collection 1")
+These functions are intentionally simple so they can be replaced by API calls later with minimal changes to the UI.
 
-# Load storage data
-storage = get_storage_data()
-```
+## Initializer (`initializer.py`)
 
-## Modifying Mock Data
+On first run (or when files are missing) the initializer seeds default data:
 
-To add or modify test data:
+- Default collections: Syllabus, Memo, Forms, Others
+- `files_data.json` starts with an empty `files` array and `next_file_id` set to 1
+- `storage_data.json` seeded with `total_size_gb` and zero usage
 
-1. Open the appropriate JSON file
-2. Follow the existing structure
-3. Save the file
-4. The changes will be reflected immediately when the application loads the data
-
-**Note:** Ensure JSON syntax is valid. Use a JSON validator if needed.
-
-## Benefits of JSON-based Mock Data
-
-- **Easy to modify**: Update test data without changing code
-- **Realistic**: Mimics data fetched from an API
-- **Reusable**: Same data can be used across different views
-- **Version control friendly**: Changes are tracked separately from code
-- **Scalable**: Easy to add more data as needed
-
-## Future Migration
-
-When migrating to a real backend API:
-
-1. Update the functions in `data_loader.py` to make API calls
-2. Keep the same function signatures
-3. No changes needed in the view files
-4. The JSON files can remain as fallback data for offline mode
+---
