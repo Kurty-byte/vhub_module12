@@ -5,6 +5,7 @@ from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
 from PyQt6.QtCore import Qt, pyqtSignal
 from ..controller.document_controller import DocumentController
 from ..utils.icon_utils import create_back_button, create_search_button
+from ..utils.bulk_operations import execute_bulk_operation
 
 class DeletedFileView(QWidget):
     file_restored = pyqtSignal(dict)  # Signal to notify parent of file restoration
@@ -32,37 +33,122 @@ class DeletedFileView(QWidget):
         header_layout = QHBoxLayout()
         back_btn = create_back_button(callback=self.go_back)
 
+        header = QLabel("Deleted Files")
+        header.setFont(QFont("Arial", 16))
+        
         search_bar = QLineEdit()
         search_button = create_search_button(callback=lambda: print("Search button clicked"))
         search_bar.setPlaceholderText("Search Deleted Files...")
         search_bar.setMinimumWidth(200)
-        header = QLabel("Deleted Files")
-        header.setFont(QFont("Arial", 16))
-        
-        # Restore All and Erase All buttons
-        restore_all_btn = QPushButton("Restore All")
-        restore_all_btn.clicked.connect(self.handle_restore_all)
-        
-        erase_all_btn = QPushButton("Erase All")
-        erase_all_btn.clicked.connect(self.handle_erase_all)
         
         header_layout.addWidget(header)
         header_layout.addStretch()
-        header_layout.addWidget(restore_all_btn)
-        header_layout.addWidget(erase_all_btn)
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
         header_layout.addWidget(back_btn)
         main_layout.addLayout(header_layout)
+        
+        # Action buttons row (between header and table)
+        actions_layout = QHBoxLayout()
+        
+        # Restore All button
+        restore_all_btn = QPushButton("Restore All")
+        restore_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        restore_all_btn.clicked.connect(self.handle_restore_all)
+        
+        # Bulk Restore button (for selected items)
+        bulk_restore_btn = QPushButton("Restore")
+        bulk_restore_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5cb85c;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #4cae4c;
+            }
+        """)
+        bulk_restore_btn.clicked.connect(self.handle_bulk_restore)
+        
+        # Erase All button
+        erase_all_btn = QPushButton("Delete All")
+        erase_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        erase_all_btn.clicked.connect(self.handle_erase_all)
+        
+        # Bulk Delete button (for selected items)
+        bulk_delete_btn = QPushButton("Delete")
+        bulk_delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d9534f;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #c9302c;
+            }
+        """)
+        bulk_delete_btn.clicked.connect(self.handle_bulk_delete)
+        
+        actions_layout.addWidget(restore_all_btn)
+        actions_layout.addWidget(bulk_restore_btn)
+        actions_layout.addWidget(erase_all_btn)
+        actions_layout.addWidget(bulk_delete_btn)
+        actions_layout.addStretch()
+        main_layout.addLayout(actions_layout)
 
-        # Table logic with Days Remaining column
+        # Table logic with Days Remaining column and checkboxes
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Filename", "Time", "Extension", "Days Remaining", "Actions"])
+        self.table.setColumnCount(6)  # Added checkbox column
+        self.table.setHorizontalHeaderLabels(["", "Filename", "Time", "Extension", "Days Remaining", "Actions"])
+        
+        # Create "Select All" checkbox in header
+        self.select_all_checkbox = QTableWidgetItem()
+        self.select_all_checkbox.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
+        self.select_all_checkbox.setText("☑")
+        self.table.setHorizontalHeaderItem(0, self.select_all_checkbox)
+        
+        # Connect header click to toggle all checkboxes
+        self.table.horizontalHeader().sectionClicked.connect(self.handle_header_checkbox_clicked)
+        
+        # Set column widths
+        self.table.setColumnWidth(0, 40)  # Checkbox column
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)  # Single selection only (use checkboxes for bulk)
         self.table.itemClicked.connect(self.handle_item_clicked)
         self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
@@ -71,6 +157,24 @@ class DeletedFileView(QWidget):
         main_layout.addWidget(self.table)
 
         self.setLayout(main_layout)
+    
+    def handle_header_checkbox_clicked(self, logical_index):
+        """Handle click on header checkbox to select/deselect all"""
+        if logical_index == 0:  # Checkbox column
+            # Toggle the select all state
+            current_state = self.select_all_checkbox.checkState()
+            new_state = Qt.CheckState.Unchecked if current_state == Qt.CheckState.Checked else Qt.CheckState.Checked
+            
+            # Update header checkbox
+            self.select_all_checkbox.setCheckState(new_state)
+            
+            # Update all row checkboxes
+            for row in range(self.table.rowCount()):
+                checkbox_item = self.table.item(row, 0)
+                if checkbox_item:
+                    checkbox_item.setCheckState(new_state)
+            
+            print(f"Select All: {'Checked' if new_state == Qt.CheckState.Checked else 'Unchecked'}")
 
     def create_actions_widget(self, filename, deleted_at=None):
         widget = QWidget()
@@ -106,22 +210,34 @@ class DeletedFileView(QWidget):
     def add_file_to_table(self, name, time, ext, deleted_at=None, days_remaining=None):
         row = self.table.rowCount()
         self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(name))
-        self.table.setItem(row, 1, QTableWidgetItem(time))
-        self.table.setItem(row, 2, QTableWidgetItem(ext))
-        self.table.setItem(row, 3, self.create_days_remaining_item(days_remaining))
+        
+        # Add checkbox in first column
+        checkbox_item = QTableWidgetItem()
+        checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+        self.table.setItem(row, 0, checkbox_item)
+        
+        # Add file data (shifted by 1 column)
+        self.table.setItem(row, 1, QTableWidgetItem(name))
+        self.table.setItem(row, 2, QTableWidgetItem(time))
+        self.table.setItem(row, 3, QTableWidgetItem(ext))
+        self.table.setItem(row, 4, self.create_days_remaining_item(days_remaining))
+        
+        # Add actions widget
         actions_widget = self.create_actions_widget(name, deleted_at)
-        self.table.setCellWidget(row, 4, actions_widget)
+        self.table.setCellWidget(row, 5, actions_widget)
 
     def handle_item_clicked(self, item):
-        if item.column() != 4:  # Not actions column
-            filename = self.table.item(item.row(), 0).text()
+        # Skip checkbox column (0) and actions column (5)
+        if item.column() != 0 and item.column() != 5:
+            filename = self.table.item(item.row(), 1).text()
             print(f"Deleted file row clicked: {filename}")
     
     def handle_item_double_clicked(self, item):
         """Handle table item double-click - show file details dialog"""
-        if item.column() != 4:  # Not actions column
-            filename = self.table.item(item.row(), 0).text()
+        # Skip checkbox column (0) and actions column (5)
+        if item.column() != 0 and item.column() != 5:
+            filename = self.table.item(item.row(), 1).text()
             # Need to find the deleted_at timestamp for this file
             files_data = self.controller.get_deleted_files()
             deleted_at = None
@@ -158,13 +274,15 @@ class DeletedFileView(QWidget):
                 days_remaining
             )
             
-            # Track file data in cache
+            # Track file data in cache with file_id for bulk operations
             cache_key = self._get_cache_key(file_data['filename'], file_data.get('deleted_at'))
             self.file_data_cache[cache_key] = {
+                'filename': file_data['filename'],
                 'time': file_data.get('time', 'N/A'),
                 'extension': file_data['extension'],
                 'deleted_at': file_data.get('deleted_at'),
                 'days_remaining': days_remaining,
+                'file_id': file_data.get('file_id'),  # Store file_id for bulk operations
                 'row_index': idx
             }
     
@@ -507,9 +625,149 @@ class DeletedFileView(QWidget):
     def _rebuild_file_indices(self):
         """Rebuild row indices in file_data_cache after removals"""
         for row_idx in range(self.table.rowCount()):
-            filename = self.table.item(row_idx, 0).text()
-            # Need to find the cache key for this row
-            for cache_key, cached_data in self.file_data_cache.items():
-                if cache_key.startswith(filename + "|"):
-                    cached_data['row_index'] = row_idx
-                    break
+            # Column 1 now contains filename (column 0 is checkbox)
+            filename_item = self.table.item(row_idx, 1)
+            if filename_item:
+                filename = filename_item.text()
+                # Need to find the cache key for this row
+                for cache_key, cached_data in self.file_data_cache.items():
+                    if cache_key.startswith(filename + "|"):
+                        cached_data['row_index'] = row_idx
+                        break
+    
+    def handle_bulk_delete(self):
+        """Handle bulk permanent deletion of selected files"""
+        # Get checked files from table
+        selected_files = self._get_checked_files()
+        
+        if not selected_files:
+            QMessageBox.warning(
+                self,
+                "No Files Selected",
+                "Please check at least one file to delete.\n\n"
+                "Tip: Use the checkboxes in the first column to select files."
+            )
+            return
+        
+        # Define the delete operation for a single file
+        def delete_file_operation(file_data):
+            """Permanently delete a single file using the controller"""
+            filename = file_data.get('filename')
+            deleted_at = file_data.get('deleted_at')
+            file_id = file_data.get('file_id')
+            
+            try:
+                # Use controller to permanently delete file
+                if file_id:
+                    success, message = self.controller.permanent_delete_file(file_id=file_id)
+                    print(f"Permanently deleting file by file_id: {file_id} ({filename})")
+                else:
+                    success, message = self.controller.permanent_delete_file(
+                        filename=filename,
+                        deleted_at=deleted_at
+                    )
+                    print(f"Permanently deleting file by filename: {filename}")
+                
+                return success, message
+            
+            except Exception as e:
+                print(f"Error permanently deleting file: {e}")
+                return False, str(e)
+        
+        # Execute bulk operation with confirmation dialog
+        successful, failed, failed_items = execute_bulk_operation(
+            items=selected_files,
+            operation_func=delete_file_operation,
+            operation_name="Permanently Delete",
+            parent=self,
+            item_display_func=lambda item: f"{item['filename']} ({item['extension']})",
+            confirmation_message=f"⚠️ WARNING ⚠️\n\nAre you sure you want to PERMANENTLY delete {len(selected_files)} file(s)?\n\n"
+                               "This action CANNOT be undone!\n\nThe files will be removed from the Recycle Bin forever."
+        )
+        
+        # Refresh the view after bulk deletion
+        if successful > 0:
+            self.load_deleted_files()
+            print(f"Bulk permanent delete completed: {successful} succeeded, {failed} failed")
+    
+    def handle_bulk_restore(self):
+        """Handle bulk restoration of selected files"""
+        # Get checked files from table
+        selected_files = self._get_checked_files()
+        
+        if not selected_files:
+            QMessageBox.warning(
+                self,
+                "No Files Selected",
+                "Please check at least one file to restore.\n\n"
+                "Tip: Use the checkboxes in the first column to select files."
+            )
+            return
+        
+        # Define the restore operation for a single file
+        def restore_file_operation(file_data):
+            """Restore a single file using the controller"""
+            filename = file_data.get('filename')
+            deleted_at = file_data.get('deleted_at')
+            file_id = file_data.get('file_id')
+            
+            try:
+                # Use controller to restore file
+                if file_id:
+                    success, message = self.controller.restore_file(file_id=file_id)
+                    print(f"Restoring file by file_id: {file_id} ({filename})")
+                else:
+                    success, message = self.controller.restore_file(
+                        filename=filename,
+                        deleted_at=deleted_at
+                    )
+                    print(f"Restoring file by filename: {filename}")
+                
+                if success:
+                    # Emit signal for each restored file
+                    self.file_restored.emit(file_data)
+                
+                return success, message
+            
+            except Exception as e:
+                print(f"Error restoring file: {e}")
+                return False, str(e)
+        
+        # Execute bulk operation with confirmation dialog
+        successful, failed, failed_items = execute_bulk_operation(
+            items=selected_files,
+            operation_func=restore_file_operation,
+            operation_name="Restore",
+            parent=self,
+            item_display_func=lambda item: f"{item['filename']} ({item['extension']})",
+            confirmation_message=f"Are you sure you want to restore {len(selected_files)} file(s)?\n\n"
+                               "The files will be moved back to the uploaded files list."
+        )
+        
+        # Refresh the view after bulk restoration
+        if successful > 0:
+            self.load_deleted_files()
+            print(f"Bulk restore completed: {successful} succeeded, {failed} failed")
+    
+    def _get_checked_files(self):
+        """Get list of checked files from table with full metadata"""
+        checked_files = []
+        
+        for row in range(self.table.rowCount()):
+            checkbox_item = self.table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                # Get filename from column 1
+                filename_item = self.table.item(row, 1)
+                if filename_item:
+                    filename = filename_item.text()
+                    
+                    # Get complete file data from cache
+                    # Need to find the cache key
+                    for cache_key, cached_data in self.file_data_cache.items():
+                        if cached_data.get('filename') == filename:
+                            file_data = cached_data.copy()
+                            checked_files.append(file_data)
+                            print(f"Checked file: {filename} (file_id: {file_data.get('file_id')})")
+                            break
+        
+        return checked_files

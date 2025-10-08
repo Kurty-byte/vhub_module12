@@ -41,12 +41,40 @@ class UploadedFilesView(QWidget):
         header = QLabel("Uploaded Files")
         header.setFont(QFont("Arial", 16))
         
+        search_bar = QLineEdit()
+        search_button = create_search_button(callback=lambda: print("Search button clicked"))
+        search_bar.setPlaceholderText("Search Uploaded Files...")
+        search_bar.setMinimumWidth(200)
+        
+        header_layout.addWidget(header)
+        header_layout.addStretch()
+        header_layout.addWidget(search_bar)
+        header_layout.addWidget(search_button)
+        header_layout.addWidget(back_btn)
+        main_layout.addLayout(header_layout)
+        
+        # Action buttons row (between header and table)
+        actions_layout = QHBoxLayout()
+        
         # Add File button
         add_file_btn = QPushButton("Add File")
+        add_file_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
         add_file_btn.clicked.connect(self.handle_add_file)
         
         # Bulk Delete button
-        bulk_delete_btn = QPushButton("Bulk Delete")
+        bulk_delete_btn = QPushButton("Delete")
         bulk_delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: #dc3545;
@@ -62,19 +90,10 @@ class UploadedFilesView(QWidget):
         """)
         bulk_delete_btn.clicked.connect(self.handle_bulk_delete)
         
-        search_bar = QLineEdit()
-        search_button = create_search_button(callback=lambda: print("Search button clicked"))
-        search_bar.setPlaceholderText("Search Uploaded Files...")
-        search_bar.setMinimumWidth(200)
-        
-        header_layout.addWidget(header)
-        header_layout.addStretch()
-        header_layout.addWidget(add_file_btn)
-        header_layout.addWidget(bulk_delete_btn)
-        header_layout.addWidget(search_bar)
-        header_layout.addWidget(search_button)
-        header_layout.addWidget(back_btn)
-        main_layout.addLayout(header_layout)
+        actions_layout.addWidget(add_file_btn)
+        actions_layout.addWidget(bulk_delete_btn)
+        actions_layout.addStretch()
+        main_layout.addLayout(actions_layout)
 
         # Table for uploaded files with checkboxes
         self.table = QTableWidget()

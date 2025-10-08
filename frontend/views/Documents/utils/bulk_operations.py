@@ -85,18 +85,27 @@ class BulkOperationDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         
         confirm_btn = QPushButton(f"{self.operation_name} All")
-        confirm_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d9534f;
+        
+        # Use green for Restore operations, red for Delete operations
+        if "restore" in self.operation_name.lower():
+            button_color = "#28a745"  # Green
+            hover_color = "#218838"   # Darker green
+        else:
+            button_color = "#d9534f"  # Red
+            hover_color = "#c9302c"   # Darker red
+        
+        confirm_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {button_color};
                 color: white;
                 font-weight: bold;
                 padding: 8px 16px;
                 border: none;
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #c9302c;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {hover_color};
+            }}
         """)
         confirm_btn.clicked.connect(self.confirm)
         
