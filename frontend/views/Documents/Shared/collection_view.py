@@ -435,6 +435,14 @@ class CollectionView(QWidget):
             self.file_uploaded.emit(file_data)
             return
         
+        # CRITICAL FIX: Handle empty state transition
+        # If table is hidden (empty state showing), we need to show it
+        if not self.table.isVisible():
+            print("Transitioning from empty state to populated table")
+            if hasattr(self, 'empty_state') and self.empty_state:
+                self.empty_state.setVisible(False)
+            self.table.setVisible(True)
+        
         # Check if file already exists
         if filename in self.file_data_cache:
             # Update existing file data (accounting for checkbox column)

@@ -381,7 +381,7 @@ class AdminDash(QWidget):
         if len(files_data) == 0:
             # Show empty state
             self.files_empty_state = EmptyStateWidget(
-                icon_name="document.png",
+                icon_name="folder1.png",
                 title="No Files Yet",
                 message="Upload your first file to get started with document management.",
                 action_text="Upload File"
@@ -890,6 +890,14 @@ class AdminDash(QWidget):
             # Fallback to full refresh if filename not provided
             self.refresh_files_table()
             return
+        
+        # CRITICAL FIX: Handle empty state transition
+        # If table is hidden (empty state showing), we need to show it
+        if not self.files_table.isVisible():
+            print("Transitioning from empty state to populated files table")
+            if hasattr(self, 'files_empty_state') and self.files_empty_state:
+                self.files_empty_state.setVisible(False)
+            self.files_table.setVisible(True)
         
         # Check if file already exists
         if filename in self.file_data_cache:

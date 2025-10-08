@@ -365,6 +365,15 @@ class UploadedFilesView(QWidget):
     def on_file_uploaded(self, file_data):
         """Handle file uploaded event - refresh the table and notify parent"""
         print(f"File uploaded: {file_data}")
+        
+        # CRITICAL FIX: Handle empty state transition
+        # If table is hidden (empty state showing), we need to show it before adding
+        if not self.table.isVisible():
+            print("Transitioning from empty state to populated table")
+            if hasattr(self, 'empty_state') and self.empty_state:
+                self.empty_state.setVisible(False)
+            self.table.setVisible(True)
+        
         # Emit signal to notify parent (AdminDash)
         self.file_uploaded.emit(file_data)
         # Refresh the table
