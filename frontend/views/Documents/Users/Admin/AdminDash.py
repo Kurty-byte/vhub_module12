@@ -142,15 +142,51 @@ class AdminDash(QWidget):
         # Action buttons
         add_collection_btn = QPushButton("Add Collection")
         add_collection_btn.clicked.connect(self.handle_add_collection)
-        add_collection_btn.setStyleSheet("border:none; font-family: Poppins; padding: 5px; font-weight: bold; text-decoration: underline;")
+        add_collection_btn.setStyleSheet("""
+    QPushButton {
+        border: none;
+        font-family: Poppins;
+        padding: 5px;
+        font-weight: bold;
+        text-decoration: underline;
+        color: #000000;
+    }
+    QPushButton:hover {
+        color: #555555; /* lighter text (and underline) when hovered */
+    }
+""")
         
         delete_collection_btn = QPushButton("Delete Collection")
         delete_collection_btn.clicked.connect(self.handle_delete_collection)
-        delete_collection_btn.setStyleSheet(" border:none;font-family: Poppins; padding: 5px; font-weight: bold; text-decoration: underline;")
+        delete_collection_btn.setStyleSheet("""
+    QPushButton {
+        border: none;
+        font-family: Poppins;
+        padding: 5px;
+        font-weight: bold;
+        text-decoration: underline;
+        color: #000000;
+    }
+    QPushButton:hover {
+        color: #555555; /* lighter text (and underline) when hovered */
+    }
+""")
         
         upload_link = QPushButton("File Upload Requests")
         upload_link.clicked.connect(lambda: print("File Upload Requests clicked"))
-        upload_link.setStyleSheet(" border:none;font-family: Poppins; padding: 5px; font-weight: bold; text-decoration: underline;")
+        upload_link.setStyleSheet("""
+    QPushButton {
+        border: none;
+        font-family: Poppins;
+        padding: 5px;
+        font-weight: bold;
+        text-decoration: underline;
+        color: #000000;
+    }
+    QPushButton:hover {
+        color: #555555; /* lighter text (and underline) when hovered */
+    }
+""")
         
         header_layout.addWidget(collections_label)
         header_layout.addStretch()
@@ -202,18 +238,87 @@ class AdminDash(QWidget):
         files_frame = QFrame()
         files_frame.setFrameShape(QFrame.Shape.Box)
         files_layout = QVBoxLayout()
-        
+
+        shadow2 = QGraphicsDropShadowEffect()
+        shadow2.setBlurRadius(20)
+        shadow2.setOffset(0, 4)
+        shadow2.setColor(QColor(0, 0, 0, 60))
+        files_frame.setStyleSheet("border: none;")
+        files_frame.setGraphicsEffect(shadow2)
+
+        # Add space above "Uploaded Files"
+        files_layout.addSpacing(10)
+
         # Files header - now a clickable button
         files_header_layout = QHBoxLayout()
-        files_title = QPushButton("Uploaded Files")
-        files_title.setStyleSheet("text-align: left; font-weight: bold;")
+        files_layout.addSpacing(10)
+        
+        files_header_layout.setContentsMargins(0, 0, 0, 0)
+
+        
+        uploaded_files_label = QLabel("Uploaded Files")
+        uploaded_files_label.setStyleSheet("font-family: Poppins; font-size: 20px; padding: 5px;")
+        uploaded_files_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)  # Align vertically with buttons
+        
+
+        files_title = QPushButton("Manage Uploaded Files")
+        files_title.setStyleSheet("""
+    QPushButton {
+        font-weight: bold;
+        border: none;
+        border-bottom: 1.5px solid black;  /* bold underline */
+        color: black;
+        background-color: transparent;
+    }
+    QPushButton:hover {
+        color: #555555; /* lighter text (and underline) when hovered */
+    }
+""")
         files_title.clicked.connect(self.handle_view_uploaded_files)
+
         delete_btn = QPushButton("Manage Deleted Files")
+        delete_btn.setStyleSheet("""
+    QPushButton {
+        font-weight: bold;
+        border: none;
+        border-bottom: 1.5px solid black;  /* bold underline */
+        color: black;
+        background-color: transparent;
+    }
+    QPushButton:hover {
+        color: #555555; /* lighter text (and underline) when hovered */
+    }
+""")
         delete_btn.clicked.connect(self.handle_manage_deleted_files)
+        
+        
+        files_header_layout.addWidget(uploaded_files_label)
+        files_header_layout.addStretch()
         files_header_layout.addWidget(files_title)
         files_header_layout.addWidget(delete_btn)
-        files_header_layout.addStretch()
         files_layout.addLayout(files_header_layout)
+        
+        files_layout.addSpacing(10)
+
+
+        # Add horizontal separator line
+        # Add horizontal separator line (thin black)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Plain)
+        separator.setLineWidth(1)
+        separator.setStyleSheet("""
+            QFrame {
+                background-color: black;
+                color: black;
+                border: none;
+                max-height: 1.5px;
+            }
+        """)
+        files_layout.addWidget(separator)
+        files_layout.addSpacing(8)
+
+
 
         # Create a table view and model for files
         self.files_table = QTableView()
@@ -226,11 +331,43 @@ class AdminDash(QWidget):
         self.files_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.files_table.clicked.connect(self.handle_file_row_clicked)
         self.files_table.doubleClicked.connect(self.handle_file_row_double_clicked)
+        self.files_table.setAlternatingRowColors(True)
+
         
+
+        # Style the table header
+        self.files_table.setStyleSheet("""
+    QTableView {
+        background-color: white;
+        alternate-background-color: #d3d3d3; /* light grey for alternating rows */
+        border: none;
+        selection-background-color: #084924; /* dark green highlight */
+        color: black;
+        gridline-color: transparent;
+    }
+    QHeaderView::section {
+        background-color: #084924; /* dark green header */
+        color: white;
+        font-weight: bold;
+        border: none;
+        padding: 8px;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
+    }
+    QTableCornerButton::section {
+        background-color: #084924;
+        border: none;
+    }
+    QTableView::item {
+        border-bottom: 1px solid black; /* thin black separator line */
+        padding: 8px;
+    }
+""")
+
         # Connect model signals for automatic cache consistency
         self.files_model.rowsRemoved.connect(self._on_rows_removed)
         self.files_model.dataChanged.connect(self._on_data_changed)
-        
+
         # Load file data using controller
         files_data = self.controller.get_files()
 
@@ -239,13 +376,12 @@ class AdminDash(QWidget):
             status = file_data.get('status', 'available')
             approval = file_data.get('approval_status', 'pending')
             self.add_file_to_table(
-                file_data['filename'], 
-                file_data.get('uploaded_date', file_data.get('time', 'N/A')), 
+                file_data['filename'],
+                file_data.get('uploaded_date', file_data.get('time', 'N/A')),
                 file_data['extension'],
                 status,
                 approval
             )
-            # Track file data in cache
             self.file_data_cache[file_data['filename']] = {
                 'uploaded_date': file_data.get('uploaded_date', file_data.get('time', 'N/A')),
                 'extension': file_data['extension'],
@@ -253,10 +389,13 @@ class AdminDash(QWidget):
                 'approval_status': approval,
                 'row_index': idx
             }
+
         files_layout.addWidget(self.files_table)
+
         
         # New button at bottom right
-        new_btn = QPushButton("+ New")
+        new_btn = QPushButton("+  New")
+        new_btn.setStyleSheet("color: #084924; border-radius: 5px; width: 70px; height: 25px; border: 1px solid #084924; font-family: Poppins; font-weight: bold")
         new_btn.clicked.connect(self.handle_add_file)
 
         new_btn_layout = QHBoxLayout()
@@ -274,6 +413,11 @@ class AdminDash(QWidget):
         # Load storage data using controller
         storage_data = self.controller.get_storage_info()
         
+        
+        shadow1 = QGraphicsDropShadowEffect()
+        shadow1.setBlurRadius(20)
+        shadow1.setOffset(0, 4)
+        shadow1.setColor(QColor(0, 0, 0, 60)) 
         # Create actual donut chart widget
         self.donut_chart = DonutChartWidget(
             used_percentage=storage_data['usage_percentage'],
@@ -283,28 +427,47 @@ class AdminDash(QWidget):
         self.donut_chart.setMinimumHeight(250)
         chart_layout.addWidget(self.donut_chart)
         
+        chart_frame.setStyleSheet("border: none")
+        chart_frame.setGraphicsEffect(shadow1)
+    
+            
         legend_layout = QVBoxLayout()
         
         used_row = QHBoxLayout()
+        used_row.setContentsMargins(25, 0, 25, 0)  # add left & right spacing
+
         used_color = QLabel("●") 
-        used_color.setStyleSheet("color: #084924; font-size: 16px; font-weight: bold; font-family: Poppins;")  # for GREEN color
+        used_color.setStyleSheet("color: #084924; font-size: 24px; font-weight: bold; font-family: Poppins;")  # green dot
+
         used_label = QLabel("Used Storage")
+        used_label.setStyleSheet("font-family: Poppins; font-size: 14px;")
+
         used_size = QLabel(f"Actual Size: {storage_data['used_size_gb']} GB")
+        used_size.setStyleSheet("font-family: Poppins; font-size: 14px;")
+
         used_row.addWidget(used_color)
         used_row.addWidget(used_label)
         used_row.addStretch()
         used_row.addWidget(used_size)
 
+
         free_row = QHBoxLayout()
+        free_row.setContentsMargins(25, 0, 25, 0)  # add left & right spacing
+
         free_color = QLabel("●")
-        free_color.setStyleSheet("color: #E0E0E0; font-size: 16px; font-weight: bold; font-family: Poppins;")  # this is ofr LIGHT GRAY colow
+        free_color.setStyleSheet("color: #E0E0E0; font-size: 24px; font-weight: bold; font-family: Poppins;")  # light gray dot
+
         free_label = QLabel("Free Space")
+        free_label.setStyleSheet("font-family: Poppins; font-size: 14px;")
+
         free_size = QLabel(f"Unused Size: {storage_data['free_size_gb']} GB")
+        free_size.setStyleSheet("font-family: Poppins; font-size: 14px;")
+
         free_row.addWidget(free_color)
         free_row.addWidget(free_label)
         free_row.addStretch()
         free_row.addWidget(free_size)
-        
+                
         
         legend_layout.addLayout(used_row)
         legend_layout.addLayout(free_row)
@@ -1065,7 +1228,7 @@ class AdminDash(QWidget):
     def refresh_storage_chart(self):
         """
         refresh the storage chart with updated data from the controller
-        u can call this when
+        u can call this when:
         
             after uploading files and after file deletions
             (and maybe after some operations that updates
