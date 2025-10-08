@@ -80,7 +80,17 @@ class CollectionView(QWidget):
         # Table logic with checkboxes for bulk selection
         self.table = QTableWidget()
         self.table.setColumnCount(5)  # Added checkbox column
-        self.table.setHorizontalHeaderLabels(["☑", "Filename", "Time", "Extension", "Actions"])
+        self.table.setHorizontalHeaderLabels(["", "Filename", "Time", "Extension", "Actions"])
+        
+        # Create "Select All" checkbox in header
+        self.select_all_checkbox = QTableWidgetItem()
+        self.select_all_checkbox.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
+        self.select_all_checkbox.setText("☑")
+        self.table.setHorizontalHeaderItem(0, self.select_all_checkbox)
+        
+        # Connect header click to toggle all checkboxes
+        self.table.horizontalHeader().sectionClicked.connect(self.handle_header_checkbox_clicked)
         
         # Set column widths
         self.table.setColumnWidth(0, 40)  # Checkbox column
@@ -132,6 +142,24 @@ class CollectionView(QWidget):
         y = self.height() - button_size.height() - margin
         self.floating_add_btn.move(x, y)
         self.floating_add_btn.raise_()  # Ensure button is on top
+    
+    def handle_header_checkbox_clicked(self, logical_index):
+        """Handle click on header checkbox to select/deselect all"""
+        if logical_index == 0:  # Checkbox column
+            # Toggle the select all state
+            current_state = self.select_all_checkbox.checkState()
+            new_state = Qt.CheckState.Unchecked if current_state == Qt.CheckState.Checked else Qt.CheckState.Checked
+            
+            # Update header checkbox
+            self.select_all_checkbox.setCheckState(new_state)
+            
+            # Update all row checkboxes
+            for row in range(self.table.rowCount()):
+                checkbox_item = self.table.item(row, 0)
+                if checkbox_item:
+                    checkbox_item.setCheckState(new_state)
+            
+            print(f"Select All: {'Checked' if new_state == Qt.CheckState.Checked else 'Unchecked'}")
 
     def create_actions_widget(self, filename):
         widget = QWidget()

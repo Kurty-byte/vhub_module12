@@ -5,6 +5,7 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, pyqtSignal
 from ..controller.document_controller import DocumentController
 from ..utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
+from ..utils.bulk_operations import execute_bulk_operation
 
 class UploadedFilesView(QWidget):
     """
@@ -27,6 +28,10 @@ class UploadedFilesView(QWidget):
 
         self.stack: QStackedWidget = stack
         self.setWindowTitle("Uploaded Files")
+        
+        # Track file data for efficient operations
+        self.file_data_cache = {}  # {'filename': {'file_id': ..., 'timestamp': ..., 'row_index': ...}}
+        
         main_layout = QVBoxLayout()
 
         # Header with back button
@@ -40,6 +45,23 @@ class UploadedFilesView(QWidget):
         add_file_btn = QPushButton("Add File")
         add_file_btn.clicked.connect(self.handle_add_file)
         
+        # Bulk Delete button
+        bulk_delete_btn = QPushButton("Bulk Delete")
+        bulk_delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        bulk_delete_btn.clicked.connect(self.handle_bulk_delete)
+        
         search_bar = QLineEdit()
         search_button = create_search_button(callback=lambda: print("Search button clicked"))
         search_bar.setPlaceholderText("Search Uploaded Files...")
@@ -48,19 +70,35 @@ class UploadedFilesView(QWidget):
         header_layout.addWidget(header)
         header_layout.addStretch()
         header_layout.addWidget(add_file_btn)
+        header_layout.addWidget(bulk_delete_btn)
         header_layout.addWidget(search_bar)
         header_layout.addWidget(search_button)
         header_layout.addWidget(back_btn)
         main_layout.addLayout(header_layout)
 
-        # Table for uploaded files
+        # Table for uploaded files with checkboxes
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Filename", "Time", "Actions"])
+        self.table.setColumnCount(4)  # Added checkbox column
+        self.table.setHorizontalHeaderLabels(["", "Filename", "Time", "Actions"])
+        
+        # Create "Select All" checkbox in header
+        self.select_all_checkbox = QTableWidgetItem()
+        self.select_all_checkbox.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
+        self.select_all_checkbox.setText("☑")
+        self.table.setHorizontalHeaderItem(0, self.select_all_checkbox)
+        
+        # Connect header click to toggle all checkboxes
+        self.table.horizontalHeader().sectionClicked.connect(self.handle_header_checkbox_clicked)
+        
+        # Set column widths
+        self.table.setColumnWidth(0, 40)  # Checkbox column
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)  # Single selection only (use checkboxes for bulk)
         self.table.itemClicked.connect(self.handle_item_clicked)
         self.table.itemDoubleClicked.connect(self.handle_item_double_clicked)
 
@@ -88,6 +126,24 @@ class UploadedFilesView(QWidget):
         y = self.height() - button_size.height() - margin
         self.floating_add_btn.move(x, y)
         self.floating_add_btn.raise_()  # Ensure button is on top
+    
+    def handle_header_checkbox_clicked(self, logical_index):
+        """Handle click on header checkbox to select/deselect all"""
+        if logical_index == 0:  # Checkbox column
+            # Toggle the select all state
+            current_state = self.select_all_checkbox.checkState()
+            new_state = Qt.CheckState.Unchecked if current_state == Qt.CheckState.Checked else Qt.CheckState.Checked
+            
+            # Update header checkbox
+            self.select_all_checkbox.setCheckState(new_state)
+            
+            # Update all row checkboxes
+            for row in range(self.table.rowCount()):
+                checkbox_item = self.table.item(row, 0)
+                if checkbox_item:
+                    checkbox_item.setCheckState(new_state)
+            
+            print(f"Select All: {'Checked' if new_state == Qt.CheckState.Checked else 'Unchecked'}")
 
     def create_actions_widget(self, filename):
         """Create action buttons for each file row"""
@@ -113,39 +169,61 @@ class UploadedFilesView(QWidget):
             self.stack.setCurrentIndex(0)  # Assuming dashboard is at index 0
 
     def add_file_to_table(self, name, time, ext):
-        """Add a file row to the table"""
+        """Add a file row to the table with checkbox"""
         row = self.table.rowCount()
         self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(name))
-        self.table.setItem(row, 1, QTableWidgetItem(time))
+        
+        # Add checkbox in first column
+        checkbox_item = QTableWidgetItem()
+        checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+        self.table.setItem(row, 0, checkbox_item)
+        
+        # Add file data
+        self.table.setItem(row, 1, QTableWidgetItem(name))
+        self.table.setItem(row, 2, QTableWidgetItem(time))
+        
+        # Add actions widget
         actions_widget = self.create_actions_widget(name)
-        self.table.setCellWidget(row, 2, actions_widget)
+        self.table.setCellWidget(row, 3, actions_widget)
 
     def handle_item_clicked(self, item):
-        """Handle table item click (not action buttons)"""
-        if item.column() != 2:  # Not actions column (now column 2 instead of 3)
-            filename = self.table.item(item.row(), 0).text()
+        """Handle table item click (not action buttons or checkbox)"""
+        # Skip checkbox column (0) and actions column (3)
+        if item.column() != 0 and item.column() != 3:
+            filename = self.table.item(item.row(), 1).text()
             print(f"Uploaded file row clicked: {filename}")
     
     def handle_item_double_clicked(self, item):
         """Handle table item double-click - show file details dialog"""
-        if item.column() != 2:  # Not actions column
-            filename = self.table.item(item.row(), 0).text()
+        # Skip checkbox column (0) and actions column (3)
+        if item.column() != 0 and item.column() != 3:
+            filename = self.table.item(item.row(), 1).text()
             self.show_file_details(filename)
     
     def load_uploaded_files(self):
         """Load and populate uploaded files table"""
-        # Clear existing rows
+        # Clear existing rows and cache
         self.table.setRowCount(0)
+        self.file_data_cache.clear()
         
         # Get uploaded files from controller
         files_data = self.controller.get_files()
-        for file_data in files_data:
+        for idx, file_data in enumerate(files_data):
             self.add_file_to_table(
                 file_data['filename'], 
                 file_data.get('time', 'N/A'), 
                 file_data['extension']
             )
+            
+            # Cache file data with file_id and timestamp for bulk operations
+            self.file_data_cache[file_data['filename']] = {
+                'file_id': file_data.get('file_id'),
+                'timestamp': file_data.get('timestamp'),
+                'extension': file_data.get('extension'),
+                'time': file_data.get('time', 'N/A'),
+                'row_index': idx
+            }
     
     def handle_add_file(self):
         """Open the file upload dialog"""
@@ -154,6 +232,86 @@ class UploadedFilesView(QWidget):
         dialog = FileUploadDialog(self, username=self.username, role=self.primary_role)
         dialog.file_uploaded.connect(self.on_file_uploaded)
         dialog.exec()
+    
+    def handle_bulk_delete(self):
+        """Handle bulk deletion of selected files"""
+        # Get checked files from table
+        selected_files = self._get_checked_files()
+        
+        if not selected_files:
+            QMessageBox.warning(
+                self,
+                "No Files Selected",
+                "Please check at least one file to delete.\n\n"
+                "Tip: Use the checkboxes in the first column to select files."
+            )
+            return
+        
+        # Define the delete operation for a single file
+        def delete_file_operation(file_data):
+            """Delete a single file using the controller"""
+            filename = file_data.get('filename')
+            file_id = file_data.get('file_id')
+            timestamp = file_data.get('timestamp')
+            
+            try:
+                # Use controller to delete file (soft delete) - prefer file_id
+                if file_id:
+                    success, message = self.controller.delete_file(file_id=file_id)
+                    print(f"Deleting file by file_id: {file_id} ({filename})")
+                else:
+                    success, message = self.controller.delete_file(
+                        filename=filename,
+                        timestamp=timestamp
+                    )
+                    print(f"Deleting file by filename: {filename}")
+                
+                if success:
+                    # Emit signal for each deleted file
+                    self.file_deleted.emit(file_data)
+                
+                return success, message
+            
+            except Exception as e:
+                print(f"Error deleting file: {e}")
+                return False, str(e)
+        
+        # Execute bulk operation with confirmation dialog
+        successful, failed, failed_items = execute_bulk_operation(
+            items=selected_files,
+            operation_func=delete_file_operation,
+            operation_name="Delete",
+            parent=self,
+            item_display_func=lambda item: f"{item['filename']} ({item['extension']})",
+            confirmation_message=f"Are you sure you want to delete {len(selected_files)} file(s)?\n\n"
+                               "The files will be moved to the Recycle Bin and can be restored later."
+        )
+        
+        # Refresh the view after bulk deletion
+        if successful > 0:
+            self.load_uploaded_files()
+            print(f"Bulk delete completed: {successful} succeeded, {failed} failed")
+    
+    def _get_checked_files(self):
+        """Get list of checked files from table with full metadata"""
+        checked_files = []
+        
+        for row in range(self.table.rowCount()):
+            checkbox_item = self.table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                # Get filename from column 1
+                filename_item = self.table.item(row, 1)
+                if filename_item:
+                    filename = filename_item.text()
+                    
+                    # Get complete file data from cache
+                    if filename in self.file_data_cache:
+                        file_data = self.file_data_cache[filename].copy()
+                        file_data['filename'] = filename
+                        checked_files.append(file_data)
+                        print(f"Checked file: {filename} (file_id: {file_data.get('file_id')})")
+        
+        return checked_files
     
     def on_file_uploaded(self, file_data):
         """Handle file uploaded event - refresh the table and notify parent"""
