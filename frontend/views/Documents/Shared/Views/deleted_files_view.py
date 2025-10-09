@@ -3,10 +3,10 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton,
                              QHeaderView, QLineEdit, QStackedWidget, QMessageBox)
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
 from PyQt6.QtCore import Qt, pyqtSignal
-from ..controller.document_controller import DocumentController
-from ..utils.icon_utils import create_back_button, create_search_button
-from ..utils.bulk_operations import execute_bulk_operation
-from ..widgets.empty_state import EmptyStateWidget
+from ...controller.document_controller import DocumentController
+from ...utils.icon_utils import create_back_button, create_search_button
+from ...utils.bulk_operations import execute_bulk_operation
+from ...widgets.empty_state import EmptyStateWidget
 
 class DeletedFileView(QWidget):
     file_restored = pyqtSignal(dict)  # Signal to notify parent of file restoration
@@ -532,7 +532,7 @@ class DeletedFileView(QWidget):
                 file_data['days_remaining'] = file_info.get('days_remaining')
                 file_data['age_days'] = file_info.get('age_days')
             
-            from .file_details_dialog import FileDetailsDialog
+            from ..Dialogs.file_details_dialog import FileDetailsDialog
             dialog = FileDetailsDialog(
                 self, 
                 file_data=file_data, 

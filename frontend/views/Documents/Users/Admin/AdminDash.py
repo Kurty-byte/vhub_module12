@@ -661,7 +661,7 @@ class AdminDash(QWidget):
                 break
         
         if file_data:
-            from ...Shared.file_details_dialog import FileDetailsDialog
+            from ...Shared.Dialogs.file_details_dialog import FileDetailsDialog
             dialog = FileDetailsDialog(
                 self, 
                 file_data=file_data, 
@@ -700,7 +700,7 @@ class AdminDash(QWidget):
     def deleted_click_handler(self, event):
         def handler(event):
             print("Deleted Files clicked")
-            from ...Shared.deleted_files_view import DeletedFileView
+            from ...Shared.Views.deleted_files_view import DeletedFileView
             deleted_file_view = DeletedFileView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
             self.stack.addWidget(deleted_file_view)
             self.stack.setCurrentWidget(deleted_file_view)
@@ -750,7 +750,7 @@ class AdminDash(QWidget):
                 return
                 
             print(f"Collection opened: {collection_name} (ID: {collection_id})")
-            from ...Shared.collection_view import CollectionView
+            from ...Shared.Views.collection_view import CollectionView
             collection_view = CollectionView(
                 self.username,
                 self.roles,
@@ -775,7 +775,7 @@ class AdminDash(QWidget):
     def handle_add_collection(self):
         """Open the add collection dialog popup"""
         print("Add Collection clicked - Opening dialog")
-        from ...Shared.add_collection_dialog import AddCollectionDialog
+        from ...Shared.Dialogs.add_collection_dialog import AddCollectionDialog
         dialog = AddCollectionDialog(self)
         dialog.collection_created.connect(self.on_collection_created)
         dialog.exec()  # Show modal dialog
@@ -848,7 +848,7 @@ class AdminDash(QWidget):
     def handle_add_file(self):
         """Open the file upload dialog popup"""
         print("Add file clicked - Opening dialog")
-        from ...Shared.file_upload_dialog import FileUploadDialog
+        from ...Shared.Dialogs.file_upload_dialog import FileUploadDialog
         dialog = FileUploadDialog(self, username=self.username, role=self.primary_role)
         dialog.file_uploaded.connect(self.on_file_uploaded)
         dialog.exec()
@@ -1107,7 +1107,7 @@ class AdminDash(QWidget):
     
     def handle_manage_deleted_files(self):
         print("Manage Deleted Files clicked")
-        from ...Shared.deleted_files_view import DeletedFileView
+        from ...Shared.Views.deleted_files_view import DeletedFileView
         deleted_view = DeletedFileView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
         deleted_view.file_restored.connect(self.on_file_restored)
         self.stack.addWidget(deleted_view)
@@ -1116,7 +1116,7 @@ class AdminDash(QWidget):
     def handle_view_uploaded_files(self):
         """Open the uploaded files view"""
         print("View Uploaded Files clicked")
-        from ...Shared.uploaded_files_view import UploadedFilesView
+        from ...Shared.Views.uploaded_files_view import UploadedFilesView
         uploaded_view = UploadedFilesView(self.username, self.roles, self.primary_role, self.token, stack=self.stack)
         uploaded_view.file_deleted.connect(self.on_file_deleted)
         uploaded_view.file_uploaded.connect(self.on_file_uploaded)

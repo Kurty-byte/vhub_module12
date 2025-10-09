@@ -3,11 +3,11 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton,
                              QHeaderView, QLineEdit, QStackedWidget, QMessageBox)
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
 from PyQt6.QtCore import Qt, pyqtSignal
-from ..controller.document_controller import DocumentController
-from ..Mock.data_loader import get_collection_by_name
-from ..utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
-from ..utils.bulk_operations import execute_bulk_operation, get_selected_files_from_table
-from ..widgets.empty_state import EmptyStateWidget
+from ...controller.document_controller import DocumentController
+from ...Mock.data_loader import get_collection_by_name
+from ...utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
+from ...utils.bulk_operations import execute_bulk_operation, get_selected_files_from_table
+from ...widgets.empty_state import EmptyStateWidget
 
 class CollectionView(QWidget):
     file_accepted = pyqtSignal(str)
@@ -276,7 +276,7 @@ class CollectionView(QWidget):
                     break
         
         if file_data:
-            from .file_details_dialog import FileDetailsDialog
+            from ..Dialogs.file_details_dialog import FileDetailsDialog
             dialog = FileDetailsDialog(
                 self, 
                 file_data=file_data, 
@@ -323,8 +323,8 @@ class CollectionView(QWidget):
     def handle_add_file(self):
         """Open file upload dialog for this collection"""
         print(f"Add file to collection: {self.collection_name}")
-        from ..services.document_crud_service import DocumentCRUDService
-        from .file_upload_dialog import FileUploadDialog
+        from ...services.document_crud_service import DocumentCRUDService
+        from ..Dialogs.file_upload_dialog import FileUploadDialog
         
         # Get collection ID
         crud_service = DocumentCRUDService()

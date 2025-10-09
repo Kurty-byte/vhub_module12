@@ -3,10 +3,10 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton,
                              QHeaderView, QLineEdit, QStackedWidget, QMessageBox)
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, pyqtSignal
-from ..controller.document_controller import DocumentController
-from ..utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
-from ..utils.bulk_operations import execute_bulk_operation
-from ..widgets.empty_state import EmptyStateWidget
+from ...controller.document_controller import DocumentController
+from ...utils.icon_utils import create_back_button, create_search_button, create_floating_add_button
+from ...utils.bulk_operations import execute_bulk_operation
+from ...widgets.empty_state import EmptyStateWidget
 
 class UploadedFilesView(QWidget):
     """
@@ -277,7 +277,7 @@ class UploadedFilesView(QWidget):
     def handle_add_file(self):
         """Open the file upload dialog"""
         print("Add file clicked - Opening dialog")
-        from .file_upload_dialog import FileUploadDialog
+        from ..Dialogs.file_upload_dialog import FileUploadDialog
         dialog = FileUploadDialog(self, username=self.username, role=self.primary_role)
         dialog.file_uploaded.connect(self.on_file_uploaded)
         dialog.exec()
@@ -432,7 +432,7 @@ class UploadedFilesView(QWidget):
                 break
         
         if file_data:
-            from .file_details_dialog import FileDetailsDialog
+            from ..Dialogs.file_details_dialog import FileDetailsDialog
             dialog = FileDetailsDialog(
                 self, 
                 file_data=file_data, 

@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 import datetime
 import os
-from ..utils.icon_utils import IconLoader
+from ...utils.icon_utils import IconLoader
 
 
 class FileUploadDialog(QDialog):
@@ -184,7 +184,7 @@ class FileUploadDialog(QDialog):
     
     def _load_collections(self):
         """Load collections from data and populate dropdown"""
-        from ..services.document_crud_service import DocumentCRUDService
+        from ...services.document_crud_service import DocumentCRUDService
         
         crud_service = DocumentCRUDService()
         collections = crud_service.get_all_collections()
@@ -248,8 +248,8 @@ class FileUploadDialog(QDialog):
         description = self.description_text.toPlainText()
         
         # Import services
-        from ..services.file_storage_service import FileStorageService
-        from ..services.document_crud_service import DocumentCRUDService
+        from ...services.file_storage_service import FileStorageService
+        from ...services.document_crud_service import DocumentCRUDService
         
         # Show progress bar
         self.progress_bar.setVisible(True)
@@ -310,7 +310,7 @@ class FileUploadDialog(QDialog):
     
     def _upload_to_collection(self, file_path, filename, category, collection_id, storage_service):
         """Upload a single file to a collection"""
-        from ..services.document_crud_service import DocumentCRUDService
+        from ...services.document_crud_service import DocumentCRUDService
         
         try:
             # Save physical file
@@ -357,7 +357,7 @@ class FileUploadDialog(QDialog):
     
     def _upload_standalone(self, file_path, filename, category, description):
         """Upload a single file as standalone (not in collection)"""
-        from ..controller.document_controller import DocumentController
+        from ...controller.document_controller import DocumentController
         
         try:
             controller = DocumentController(

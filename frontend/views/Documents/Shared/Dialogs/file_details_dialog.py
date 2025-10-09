@@ -50,7 +50,7 @@ class FileDetailsDialog(QDialog):
         extension = self.file_data.get('extension', '').lower()
         icon_filename = self._get_icon_for_extension(extension)
         
-        from ..utils.icon_utils import IconLoader
+        from ...utils.icon_utils import IconLoader
         file_icon = IconLoader.create_icon_label(icon_filename, size=(64, 64), alignment=Qt.AlignmentFlag.AlignCenter)
         icon_layout.addWidget(file_icon)
         main_layout.addLayout(icon_layout)
@@ -194,7 +194,7 @@ class FileDetailsDialog(QDialog):
     
     def _load_collections(self):
         """Load collections from data and populate dropdown"""
-        from ..Mock.data_loader import get_collections
+        from ...Mock.data_loader import get_collections
         
         collections = get_collections()
         

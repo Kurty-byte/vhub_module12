@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QLineEdit, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
-from ..utils.icon_utils import IconLoader
+from ...utils.icon_utils import IconLoader
 
 
 class AddCollectionDialog(QDialog):
@@ -128,7 +128,7 @@ class AddCollectionDialog(QDialog):
             return
         
         # Import service here to avoid circular imports
-        from ..services.document_crud_service import DocumentCRUDService
+        from ...services.document_crud_service import DocumentCRUDService
 
         username = getattr(self.parent(), 'username', 'admin')
         
