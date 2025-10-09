@@ -288,13 +288,19 @@ class DocumentCRUDService:
             }
     
     def _add_to_files_list(self, filename, file_path, category, extension, uploader, role, file_id=None):
-        """Add a file to the files list"""
+        """Add a file to the files list with duplicate prevention"""
         data = self._load_json(self.files_file)
         all_files = data.get("files", [])
         
         # Generate file_id if not provided
         if file_id is None:
             file_id = self._get_next_file_id()
+        
+        # CRITICAL FIX: Check if file_id already exists (prevent duplicates)
+        existing_file = next((f for f in all_files if f.get('file_id') == file_id), None)
+        if existing_file:
+            print(f"WARNING: File with file_id {file_id} already exists in files array. Skipping duplicate insertion.")
+            return True  # Return success but don't add duplicate
         
         now = datetime.now()
         new_file = {
@@ -315,6 +321,7 @@ class DocumentCRUDService:
         all_files.append(new_file)
         data["files"] = all_files
         
+        print(f"Added file to files array: file_id={file_id}, filename={filename}")
         return self._save_json(self.files_file, data)
     
     def get_all_uploaded_files(self):

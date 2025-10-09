@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtGui import QColor
 from ...widgets.empty_state import EmptyStateWidget
 
-from .DonutWidget import DonutChartWidget
+from ...widgets.DonutWidget import DonutChartWidget
 
 
 class AdminDash(QWidget):
@@ -619,6 +619,13 @@ class AdminDash(QWidget):
             status (str): File status (available, soft_deleted, permanently_deleted)
             approval (str): Approval status (pending, accepted, rejected)
         """
+        # CRITICAL: Check if file already exists in the model to prevent duplicates
+        for row_idx in range(self.files_model.rowCount()):
+            existing_name = self.files_model.item(row_idx, 0).text()
+            if existing_name == name:
+                print(f"WARNING: File '{name}' already exists in table at row {row_idx}, skipping duplicate add")
+                return
+        
         # Get emoji indicators
         status_emoji = self._get_status_emoji(status)
         approval_emoji = self._get_approval_emoji(approval)

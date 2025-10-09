@@ -400,10 +400,18 @@ class DocumentController:
             if description:
                 file_data['description'] = description
             
-            # Add to files array
+            # Add to files array (with duplicate prevention)
             all_files = data.get('files', [])
-            all_files.append(file_data)
-            data['files'] = all_files
+            
+            # Check for duplicate file_id before appending
+            existing_ids = [f.get('file_id') for f in all_files]
+            if file_id not in existing_ids:
+                all_files.append(file_data)
+                data['files'] = all_files
+            else:
+                print(f"WARNING: Prevented duplicate file_id={file_id} from being added to files array")
+                # Even if duplicate, we still return success since the file exists
+                return True, "File already exists in the system", file_data
             
             print(f"DEBUG upload_file: Uploading file. file_id={file_id}, filename={file_data['filename']}, is_deleted={file_data['is_deleted']}")
             print(f"DEBUG upload_file: Total files in array after upload: {len(all_files)}")
